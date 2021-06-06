@@ -10,3 +10,6 @@ pub mod pred;
 // This module contains the implementation of Paxos single and multi-decree
 // Synod Protocols.
 pub mod synod;
+
+// This module contains definitions common to byzantine protocols.
+pub mod byzantine;

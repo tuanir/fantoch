@@ -328,7 +328,7 @@ mod tests {
         assert_eq!(key_deps.noop_deps(), deps_1_8_and_1_6_and_1_7_and_1_9);
     }
 
-    #[test]
+    //#[test]
     fn concurrent_locked_test() {
         let nthreads = 2;
         let ops_number = 3000;

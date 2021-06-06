@@ -327,6 +327,16 @@ impl Config {
         let write_quorum_size = f + 1;
         (fast_quorum_size, write_quorum_size, stability_threshold)
     }
+
+    //TODO: make this generic for different types of bqs
+    /*
+    pub fn wintermute_quorum_sizes(&self) -> usize {
+        let n = self.n as f64;
+        let f = self.f as f64;
+        
+    }
+    */
+
 }
 
 #[cfg(test)]
