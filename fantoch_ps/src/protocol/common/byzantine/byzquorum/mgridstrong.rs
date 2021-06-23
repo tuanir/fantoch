@@ -24,7 +24,9 @@ impl ByzQuorumSystem for MGridStrong {
         // A quorum is `factor`*rows + `factor`columns
         // We define `factor` in a way we can guarantee at least 3f+1 in 
         // the intersection between any two quorums
-        let factor = (((((3*self.faults)/2) + 1) as f64).sqrt()).ceil() as usize;
+
+        let inner = (((3*self.faults) as f64)/2_f64) + 1_f64;
+        let factor = (inner.sqrt()).ceil() as usize;
 
         println!("Factor: {}", factor);
 
@@ -34,29 +36,43 @@ impl ByzQuorumSystem for MGridStrong {
         let rows_die = Uniform::from(0..self.grid.rows());
         let cols_die = Uniform::from(0..self.grid.cols());
 
-        
-        // FIXME: Note that we might take repeated cols/rows.
-        // Get random rows
 
         //The following section can be improved (ofc), but will remain ugly for now.
-        for i in 0..factor {
-            let throw_rows = rows_die.sample(&mut rng);
-            println!("ROWS, i: {}, r: {}", i, throw_rows);
-            for e in self.grid.get_row(throw_rows).unwrap(){
-                 q.insert(*e);
-                 print!("{} ", e);
-             }
-             println!("");
-        }
-        // Get random columns
-        for i in 0..factor {
-            let throw_cols = cols_die.sample(&mut rng);
-            println!("COLS, i: {}, c: {}", i, throw_cols);
-            for e in self.grid.get_col(throw_cols).unwrap(){
-                 q.insert(*e);
-                 print!("{} ", e);
+
+        // Generate random rows without duplicates
+        // rows_used will be useful later as they must be sent as proof in a later iteration of the code
+        let mut rows_picked: HashSet<usize> = HashSet::new();
+        loop {
+            let throw_row: usize = rows_die.sample(&mut rng);
+            println!("R: {}",throw_row);
+            rows_picked.insert(throw_row);
+            if rows_picked.len() == factor {
+                break;
             }
-             println!("");
+        }
+
+        // Generate random cols without duplicates
+        // cols_used will be useful later as they must be sent as proof in a later iteration of the code
+        let mut cols_picked: HashSet<usize> = HashSet::new();
+        loop {
+            let throw_col: usize = cols_die.sample(&mut rng);
+            println!("C: {}",throw_col);
+            cols_picked.insert(throw_col);
+            if cols_picked.len() == factor {
+                break;
+            }
+        }
+
+        for i in rows_picked.into_iter() {
+            for e in self.grid.get_row(i).unwrap() {
+                 q.insert(*e);
+             }
+        }
+
+        for j in cols_picked.into_iter() {
+            for e in self.grid.get_col(j).unwrap() {
+                 q.insert(*e);
+            }
         }
         println!("Size of Q: {}", q.len());
         q

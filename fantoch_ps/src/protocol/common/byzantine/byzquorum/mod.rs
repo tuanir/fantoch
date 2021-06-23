@@ -37,7 +37,9 @@ mod tests {
     #[test]
     fn build_mgrid_strong() {
         let p: HashSet<ProcessId> = HashSet::from_iter(0..49);
-        let s = MGridStrong::new(p, 1);
+        let f = 1;
+        //3f+2 <= sqrt(n), for grid 7x7 f must be equal 1
+        let s = MGridStrong::new(p, f);
 
         for i in 0..s.grid.rows() {
             let a = s.grid.get_row(i);
@@ -49,6 +51,13 @@ mod tests {
 
         println!("grid 7x7");
 
-        s.get_quorum();
+        let q1 = s.get_quorum();
+        let q2 = s.get_quorum();
+
+        //let inter: HashSet<ProcessId> = q1.intersection(&q2).map(|e| *e).collect();
+        let inter: HashSet<ProcessId> = q1.intersection(&q2).cloned().collect();
+
+        assert!(inter.len() >= 3*f+2);
+        //let q_intersection: HashSet<ProcessId> = q1.intersection(&q2).collect();
     }
 }
