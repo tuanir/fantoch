@@ -21,7 +21,7 @@ impl ByzQuorumSystem for MGridStrong {
     fn get_quorum(&self) -> HashSet<ProcessId> {
         let mut q = HashSet::new();
 
-        // A quorum is `factor`*rows + `factor`columns
+        // A quorum is `factor`*rows + `factor`*columns
         // We define `factor` in a way we can guarantee at least 3f+1 in 
         // the intersection between any two quorums
 
@@ -44,7 +44,7 @@ impl ByzQuorumSystem for MGridStrong {
         let mut rows_picked: HashSet<usize> = HashSet::new();
         loop {
             let throw_row: usize = rows_die.sample(&mut rng);
-            println!("R: {}",throw_row);
+            println!("R: {}", throw_row);
             rows_picked.insert(throw_row);
             if rows_picked.len() == factor {
                 break;
@@ -56,7 +56,7 @@ impl ByzQuorumSystem for MGridStrong {
         let mut cols_picked: HashSet<usize> = HashSet::new();
         loop {
             let throw_col: usize = cols_die.sample(&mut rng);
-            println!("C: {}",throw_col);
+            println!("C: {}", throw_col);
             cols_picked.insert(throw_col);
             if cols_picked.len() == factor {
                 break;
@@ -81,6 +81,7 @@ impl ByzQuorumSystem for MGridStrong {
     fn get_quorum_size(&self) -> usize {
         0
     }
+
 }
 
 impl MGridStrong {
@@ -88,15 +89,23 @@ impl MGridStrong {
     // I'm assuming that 'n' provided in the config is correct
     // TODO: properly sanitize when `n` and `f` are incompatible.
     pub fn from_set_to_matrix(procs: HashSet<ProcessId>) -> Matrix<ProcessId> {
-        let n: usize = procs.len();
+        let n: u64 = procs.len() as u64;
         println!("Size of set: {}", n);
-        let d = (n as f64).sqrt() as usize;
+
+        // Be careful, |usize| < |u64|, there can be loss of information when converting from u64 into usize
+        // Only using u64 as ProcessId to mantain compatibility with everything that was written before
+        // Matrix library uses usize everywhere
+
+        let d: usize = (n as f64).sqrt() as usize;
         println!("Dimension: {}", d);
-        //Equal view of the matrix
+
+        // Equal view of the matrix
+        // Note that afterwards sorting by distance will be useless
         let mut v = Vec::from_iter(procs.clone());
         v.sort();
         let res =  Matrix::from_iter(d, d, v.into_iter());
         res
     }
+
 
 }

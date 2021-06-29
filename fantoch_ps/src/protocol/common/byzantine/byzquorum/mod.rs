@@ -5,8 +5,7 @@ mod mgridstrong;
 pub use mgridstrong::MGridStrong;
 
 use fantoch::id::ProcessId;
-use fantoch::{HashMap, HashSet};
-use serde::{Deserialize, Serialize};
+use fantoch::HashSet;
 use std::fmt::Debug;
 
 // The idea is to have more attributes here, to implement
@@ -28,12 +27,15 @@ pub trait ByzQuorumSystem: Debug + Clone {
 //remember to test everything in byzantine
 //cargo test protocol::common::byzantine::byzquorum::tests::build_mgrid_strong -- --exact --show-output
 
+//TODO: do some proper testing, this is absolute garbage.
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use fantoch::id::ProcessId;
     use fantoch::HashSet;
     use std::iter::FromIterator;
+
     #[test]
     fn build_mgrid_strong() {
         let p: HashSet<ProcessId> = HashSet::from_iter(0..49);
@@ -56,6 +58,34 @@ mod tests {
 
         //let inter: HashSet<ProcessId> = q1.intersection(&q2).map(|e| *e).collect();
         let inter: HashSet<ProcessId> = q1.intersection(&q2).cloned().collect();
+
+        assert!(inter.len() >= 3*f+2);
+        //let q_intersection: HashSet<ProcessId> = q1.intersection(&q2).collect();
+    }
+
+    #[test]
+    fn build_mgrid_strong2() {
+        let p: HashSet<ProcessId> = HashSet::from_iter(0..25);
+        let f = 1;
+        //3f+2 <= sqrt(n), for grid 5x5 f must be equal 1
+        let s = MGridStrong::new(p, f);
+
+        for i in 0..s.grid.rows() {
+            let a = s.grid.get_row(i);
+            for j in a.unwrap() {
+                print!("{} ", j);
+            }
+            println!("");
+        }
+
+        println!("grid 5x5");
+
+        let q1 = s.get_quorum();
+        let q2 = s.get_quorum();
+
+        //let inter: HashSet<ProcessId> = q1.intersection(&q2).map(|e| *e).collect();
+        let inter: HashSet<ProcessId> = q1.intersection(&q2).cloned().collect();
+        println!("{:?}", inter);
 
         assert!(inter.len() >= 3*f+2);
         //let q_intersection: HashSet<ProcessId> = q1.intersection(&q2).collect();

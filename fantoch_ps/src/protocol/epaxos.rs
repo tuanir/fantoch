@@ -960,5 +960,6 @@ mod tests {
         assert!(
             matches!(mcollect, Action::ToSend {msg, ..} if check_msg(&msg))
         );
+        println!("EPaxos test");
     }
 }

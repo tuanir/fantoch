@@ -633,7 +633,8 @@ pub mod tests {
         // - and so on..
         let region_index = |process_id| {
             let mut index = process_id;
-            let n = config.n() as u8;
+            //let n = config.n() as u8;
+            let n = config.n() as u64;
             while index > n {
                 index -= n;
             }

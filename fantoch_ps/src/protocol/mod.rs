@@ -7,6 +7,9 @@ mod atlas;
 // This module contains the definition of `EPaxos`.
 mod epaxos;
 
+// This module contains the definition of `Wintermute`.
+mod wintermute;
+
 // This module contains the definition of `Tempo`.
 mod tempo;
 
@@ -23,6 +26,7 @@ mod partial;
 pub use atlas::{AtlasLocked, AtlasSequential};
 pub use caesar::CaesarLocked;
 pub use epaxos::{EPaxosLocked, EPaxosSequential};
+pub use wintermute::WintermuteSequential;
 pub use fpaxos::FPaxos;
 pub use tempo::{TempoAtomic, TempoLocked, TempoSequential};
 
