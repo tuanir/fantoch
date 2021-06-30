@@ -807,7 +807,7 @@ mod tests {
             EPaxos::<KD>::new(process_id_2, shard_id, config);
         let (mut epaxos_3, _) =
             EPaxos::<KD>::new(process_id_3, shard_id, config);
-
+        
         // discover processes in all epaxos
         let sorted = util::sort_processes_by_distance(
             &europe_west2,
@@ -960,6 +960,7 @@ mod tests {
         assert!(
             matches!(mcollect, Action::ToSend {msg, ..} if check_msg(&msg))
         );
+        
         println!("EPaxos test");
     }
 }

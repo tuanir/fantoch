@@ -43,6 +43,8 @@ mod tests {
         //3f+2 <= sqrt(n), for grid 7x7 f must be equal 1
         let s = MGridStrong::new(p, f);
 
+        println!("{:?}",s.grid);
+
         for i in 0..s.grid.rows() {
             let a = s.grid.get_row(i);
             for j in a.unwrap() {

@@ -130,6 +130,53 @@ impl BaseProcess {
         self.fast_quorum.is_some() && self.write_quorum.is_some()
     }
 
+    pub fn simple_discover(
+        &mut self,
+        all_processes: Vec<(ProcessId, ShardId)>,
+    ) -> bool {
+        // reset closest shard process
+        self.closest_shard_process =
+            HashMap::with_capacity(self.config.shard_count() - 1);
+
+        // select processes from my shard and compute `closest_shard_process`
+        let processes: Vec<_> = all_processes
+            .into_iter()
+            .filter_map(|(process_id, shard_id)| {
+                // check if process belongs to my shard
+                if self.shard_id == shard_id {
+                    // if yes, keep process id
+                    Some(process_id)
+                } else {
+                    // if not, then it must be the closest process from that shard (i.e. from the same region) as mine
+                    assert!(self.closest_shard_process.insert(shard_id, process_id).is_none(), "process should only connect to the closest process from each shard");
+                    None
+                }
+            })
+            .collect();
+
+        // set all processes
+        let all = HashSet::from_iter(processes.clone());
+        let all_but_me = HashSet::from_iter(
+            processes.into_iter().filter(|&p| p != self.process_id),
+        );
+
+        self.all = Some(all);
+        self.all_but_me = Some(all_but_me);
+
+
+        trace!(
+            "p{}: all_but_me {:?} | fast_quorum {:?} | write_quorum {:?} | closest_shard_process {:?}",
+            self.process_id,
+            self.all_but_me,
+            self.fast_quorum,
+            self.write_quorum,
+            self.closest_shard_process
+        );
+
+        // connected if fast quorum and write quorum are set
+        self.all.is_some() && self.all_but_me.is_some()
+    }
+
     // Returns the next dot.
     pub fn next_dot(&mut self) -> Dot {
         self.dot_gen.next_id()

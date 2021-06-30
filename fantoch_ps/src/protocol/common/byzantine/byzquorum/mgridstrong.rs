@@ -104,6 +104,16 @@ impl MGridStrong {
         let mut v = Vec::from_iter(procs.clone());
         v.sort();
         let res =  Matrix::from_iter(d, d, v.into_iter());
+        
+        /*
+        for i in 0..res.rows() {
+            let a = res.get_row(i);
+            for j in a.unwrap() {
+                print!("{} ", j);
+            }
+            println!("");
+        }
+        */
         res
     }
 

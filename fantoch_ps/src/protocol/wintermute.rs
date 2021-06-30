@@ -45,11 +45,9 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Protocol for Wintermute<KD, QS> {
         shard_id: ShardId,
         config: Config,
     ) -> (Self, Vec<(Self::PeriodicEvent, Duration)>) {
-
-
-        // compute fast and write quorum sizes
-        let (fast_quorum_size, write_quorum_size) =
-            config.epaxos_quorum_sizes();
+        // Won't use this
+        let (fast_quorum_size, write_quorum_size) = (0, 0);
+        //config.epaxos_quorum_sizes();
 
         // create protocol data-structures
         let bp = BaseProcess::new(
@@ -116,7 +114,7 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Protocol for Wintermute<KD, QS> {
         &mut self,
         processes: Vec<(ProcessId, ShardId)>,
     ) -> (bool, HashMap<ShardId, ProcessId>) {
-        let connect_ok = self.bp.discover(processes);
+        let connect_ok = self.bp.simple_discover(processes);
         (connect_ok, self.bp.closest_shard_process().clone())
     }
 
@@ -140,7 +138,6 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Protocol for Wintermute<KD, QS> {
                 quorum,
                 deps,
             } => self.handle_mcollect(from, dot, cmd, quorum, deps, time),
-            
             Message::MCollectAck { dot, deps } => {
                 //self.handle_mcollectack(from, dot, deps, time)
             }
@@ -162,7 +159,6 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Protocol for Wintermute<KD, QS> {
             Message::MStable { stable } => {
                 //self.handle_mstable(from, stable, time)
             }
-            
         }
     }
 
@@ -199,8 +195,7 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Protocol for Wintermute<KD, QS> {
 }
 
 impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
-
-    /// Depends on Byz Quorum System
+    // Depends on Byz Quorum System
     /*
     pub fn allowed_faults(n: usize) -> usize {
 
@@ -208,6 +203,15 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
     }
     */
 
+    /// Uses baseprocess attrib to create new BQS instance
+    fn build_BQS(&mut self) -> bool {
+        let created = QS::new(self.bp.all(), self.bp.config.f());
+        self.byz_quorum_system = Some(created);
+
+        self.byz_quorum_system.is_some()
+    }
+
+    //fix this.
     fn handle_submit(&mut self, dot: Option<Dot>, cmd: Command) {
         // compute the command identifier
         let dot = dot.unwrap_or_else(|| self.bp.next_dot());
@@ -216,14 +220,12 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
         let deps = self.key_deps.add_cmd(dot, &cmd, None);
 
         // create `MCollect` and target
-        
         let mcollect = Message::MCollect {
             dot,
             cmd,
             deps,
             quorum: self.bp.fast_quorum(),
         };
-        
         let target = self.bp.all();
 
         // save new action
@@ -277,7 +279,6 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
             }
             */
             return;
-
         }
 
         // check if it's a message from self
@@ -332,7 +333,6 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
     fn gc_running(&self) -> bool {
         self.bp.config.gc_interval().is_some()
     }
-
 }
 
 // consensus value is a pair where the first component is a flag indicating
@@ -494,6 +494,7 @@ mod tests {
     use fantoch::time::SimTime;
     use fantoch::util;
 
+    //cargo test protocol::wintermute::tests::sequential_wintermute_test -- --show-output
     #[test]
     fn sequential_wintermute_test() {
         wintermute_flow::<SequentialKeyDeps, MGridStrong>();
@@ -501,10 +502,13 @@ mod tests {
 
     fn wintermute_flow<KD: KeyDeps, QS: ByzQuorumSystem>() {
         // create simulation
+
+        // need to register processes
+        // otherwise it cant infer types
+        //let mut simulation = Simulation::<WintermuteSequential>::new();
         let mut simulation = Simulation::new();
 
         // processes ids
-        // found a problem here
         let v_processes: Vec<ProcessId> = (1..=25).collect();
 
         // regions
@@ -525,7 +529,6 @@ mod tests {
                 false => (*e, shard_id, us_west1.clone()),
             })
             .collect();
-        
         // planet
         let planet = Planet::new();
 
@@ -536,56 +539,200 @@ mod tests {
         let n = 25;
         let f = 1;
         let config = Config::new(n, f);
-        
+
+        /*
         // executors
         let executors_n: Vec<_> = v_processes
             .iter()
             .map(|e| GraphExecutor::new(*e, shard_id, config))
             .collect();
+        */
 
-        // wintermute
+        let executor_1 = GraphExecutor::new(1, shard_id, config);
+        let executor_2 = GraphExecutor::new(2, shard_id, config);
+        let executor_3 = GraphExecutor::new(3, shard_id, config);
+        let executor_4 = GraphExecutor::new(4, shard_id, config);
+        let executor_5 = GraphExecutor::new(5, shard_id, config);
+        let executor_6 = GraphExecutor::new(6, shard_id, config);
+        let executor_7 = GraphExecutor::new(7, shard_id, config);
+        let executor_8 = GraphExecutor::new(8, shard_id, config);
+        let executor_9 = GraphExecutor::new(9, shard_id, config);
+        let executor_10 = GraphExecutor::new(10, shard_id, config);
+        let executor_11 = GraphExecutor::new(11, shard_id, config);
+        let executor_12 = GraphExecutor::new(12, shard_id, config);
+        let executor_13 = GraphExecutor::new(13, shard_id, config);
+        let executor_14 = GraphExecutor::new(14, shard_id, config);
+        let executor_15 = GraphExecutor::new(15, shard_id, config);
+        let executor_16 = GraphExecutor::new(16, shard_id, config);
+        let executor_17 = GraphExecutor::new(17, shard_id, config);
+        let executor_18 = GraphExecutor::new(18, shard_id, config);
+        let executor_19 = GraphExecutor::new(19, shard_id, config);
+        let executor_20 = GraphExecutor::new(20, shard_id, config);
+        let executor_21 = GraphExecutor::new(21, shard_id, config);
+        let executor_22 = GraphExecutor::new(22, shard_id, config);
+        let executor_23 = GraphExecutor::new(23, shard_id, config);
+        let executor_24 = GraphExecutor::new(24, shard_id, config);
+        let executor_25 = GraphExecutor::new(25, shard_id, config);
+        /*
         let wintermute_protocol: Vec<_> = v_processes
             .iter()
             .map(|e| Wintermute::<KD, QS>::new(*e, shard_id, config))
             .collect();
-        
+        */
 
-        
+        // wintermute
+        let (mut winter_1, _) = 
+            Wintermute::<KD, QS>::new(1, shard_id, config);
+        let (mut winter_2, _) = 
+            Wintermute::<KD, QS>::new(2, shard_id, config);
+        let (mut winter_3, _) = 
+            Wintermute::<KD, QS>::new(3, shard_id, config);
+        let (mut winter_4, _) = 
+            Wintermute::<KD, QS>::new(4, shard_id, config);
+        let (mut winter_5, _) = 
+            Wintermute::<KD, QS>::new(5, shard_id, config);
+        let (mut winter_6, _) = 
+            Wintermute::<KD, QS>::new(6, shard_id, config);
+        let (mut winter_7, _) = 
+            Wintermute::<KD, QS>::new(7, shard_id, config);
+        let (mut winter_8, _) = 
+            Wintermute::<KD, QS>::new(8, shard_id, config);
+        let (mut winter_9, _) = 
+            Wintermute::<KD, QS>::new(9, shard_id, config);
+        let (mut winter_10, _) =
+            Wintermute::<KD, QS>::new(10, shard_id, config);
+        let (mut winter_11, _) =
+            Wintermute::<KD, QS>::new(11, shard_id, config);
+        let (mut winter_12, _) =
+            Wintermute::<KD, QS>::new(12, shard_id, config);
+        let (mut winter_13, _) =
+            Wintermute::<KD, QS>::new(13, shard_id, config);
+        let (mut winter_14, _) =
+            Wintermute::<KD, QS>::new(14, shard_id, config);
+        let (mut winter_15, _) =
+            Wintermute::<KD, QS>::new(15, shard_id, config);
+        let (mut winter_16, _) =
+            Wintermute::<KD, QS>::new(16, shard_id, config);
+        let (mut winter_17, _) =
+            Wintermute::<KD, QS>::new(17, shard_id, config);
+        let (mut winter_18, _) =
+            Wintermute::<KD, QS>::new(18, shard_id, config);
+        let (mut winter_19, _) =
+            Wintermute::<KD, QS>::new(19, shard_id, config);
+        let (mut winter_20, _) =
+            Wintermute::<KD, QS>::new(20, shard_id, config);
+        let (mut winter_21, _) =
+            Wintermute::<KD, QS>::new(21, shard_id, config);
+        let (mut winter_22, _) =
+            Wintermute::<KD, QS>::new(22, shard_id, config);
+        let (mut winter_23, _) =
+            Wintermute::<KD, QS>::new(23, shard_id, config);
+        let (mut winter_24, _) =
+            Wintermute::<KD, QS>::new(24, shard_id, config);
+        let (mut winter_25, _) =
+            Wintermute::<KD, QS>::new(25, shard_id, config);
+
         // discover processes in all wintermute
-
         // just reusing code, not useful for now to sort by distance
         // since when building the BQS this is not leveraged for now
+        // added function to BaseProcess, simple discover
+        // it doesnt fill fast_quorum or write_quorum
 
         let sorted = util::sort_processes_by_distance(
             &europe_west2,
             &planet,
             processes.clone(),
         );
-        println!("Got Here");
+
         /*
         for p in wintermute_protocol.iter() {
-            *p.discover(sorted);
+            p.discover(sorted);
         }
         */
-        /*
-        let sorted = util::sort_processes_by_distance(
-            &europe_west3,
-            &planet,
-            processes.clone(),
-        );
-        epaxos_2.discover(sorted);
-        let sorted = util::sort_processes_by_distance(
-            &us_west1,
-            &planet,
-            processes.clone(),
-        );
-        epaxos_3.discover(sorted);
+
+        winter_1.discover(sorted.clone());
+        winter_2.discover(sorted.clone());
+        winter_3.discover(sorted.clone());
+        winter_4.discover(sorted.clone());
+        winter_5.discover(sorted.clone());
+        winter_6.discover(sorted.clone());
+        winter_7.discover(sorted.clone());
+        winter_8.discover(sorted.clone());
+        winter_9.discover(sorted.clone());
+        winter_10.discover(sorted.clone());
+        winter_11.discover(sorted.clone());
+        winter_12.discover(sorted.clone());
+        winter_13.discover(sorted.clone());
+        winter_14.discover(sorted.clone());
+        winter_15.discover(sorted.clone());
+        winter_16.discover(sorted.clone());
+        winter_17.discover(sorted.clone());
+        winter_18.discover(sorted.clone());
+        winter_19.discover(sorted.clone());
+        winter_20.discover(sorted.clone());
+        winter_21.discover(sorted.clone());
+        winter_22.discover(sorted.clone());
+        winter_23.discover(sorted.clone());
+        winter_24.discover(sorted.clone());
+        winter_25.discover(sorted.clone());
+
+        // Build BQS now
+        winter_1.build_BQS();
+        winter_2.build_BQS();
+        winter_3.build_BQS();
+        winter_4.build_BQS();
+        winter_5.build_BQS();
+        winter_6.build_BQS();
+        winter_7.build_BQS();
+        winter_8.build_BQS();
+        winter_9.build_BQS();
+        winter_10.build_BQS();
+        winter_11.build_BQS();
+        winter_12.build_BQS();
+        winter_13.build_BQS();
+        winter_14.build_BQS();
+        winter_15.build_BQS();
+        winter_16.build_BQS();
+        winter_17.build_BQS();
+        winter_18.build_BQS();
+        winter_19.build_BQS();
+        winter_20.build_BQS();
+        winter_21.build_BQS();
+        winter_22.build_BQS();
+        winter_23.build_BQS();
+        winter_24.build_BQS();
+        winter_25.build_BQS();
 
         // register processes
-        simulation.register_process(epaxos_1, executor_1);
-        simulation.register_process(epaxos_2, executor_2);
-        simulation.register_process(epaxos_3, executor_3);
+        simulation.register_process(winter_1, executor_1);
+        simulation.register_process(winter_2, executor_2);
+        simulation.register_process(winter_3, executor_3);
+        simulation.register_process(winter_4, executor_4);
+        simulation.register_process(winter_5, executor_5);
+        simulation.register_process(winter_6, executor_6);
+        simulation.register_process(winter_7, executor_7);
+        simulation.register_process(winter_8, executor_8);
+        simulation.register_process(winter_9, executor_9);
+        simulation.register_process(winter_10, executor_10);
+        simulation.register_process(winter_11, executor_11);
+        simulation.register_process(winter_12, executor_12);
+        simulation.register_process(winter_13, executor_13);
+        simulation.register_process(winter_14, executor_14);
+        simulation.register_process(winter_15, executor_15);
+        simulation.register_process(winter_16, executor_16);
+        simulation.register_process(winter_17, executor_17);
+        simulation.register_process(winter_18, executor_18);
+        simulation.register_process(winter_19, executor_19);
+        simulation.register_process(winter_20, executor_20);
+        simulation.register_process(winter_21, executor_21);
+        simulation.register_process(winter_22, executor_22);
+        simulation.register_process(winter_23, executor_23);
+        simulation.register_process(winter_24, executor_24);
+        simulation.register_process(winter_25, executor_25);
 
+        println!("Got here");
+
+        
         // client workload
         let shard_count = 1;
         let key_gen = KeyGen::ConflictPool {
@@ -602,8 +749,8 @@ mod tests {
             commands_per_client,
             payload_size,
         );
-
-        // create client 1 that is connected to epaxos 1
+        
+        // create client 1 that is connected to wintermute 1
         let client_id = 1;
         let client_region = europe_west2.clone();
         let status_frequency = None;
@@ -621,8 +768,9 @@ mod tests {
         let target = client_1.shard_process(&target_shard);
 
         // check that `target` is epaxos 1
-        assert_eq!(target, process_id_1);
+        assert_eq!(target, 1);
 
+        /*
         // register client
         simulation.register_client(client_1);
 
@@ -634,7 +782,9 @@ mod tests {
         // there's a single action
         assert_eq!(actions.len(), 1);
         let mcollect = actions.pop().unwrap();
+        */
 
+        /*
         // check that the mcollect is being sent to *all* processes
         let check_target = |target: &HashSet<ProcessId>| target.len() == n;
         assert!(
