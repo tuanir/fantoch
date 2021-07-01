@@ -90,14 +90,14 @@ impl MGridStrong {
     // TODO: properly sanitize when `n` and `f` are incompatible.
     pub fn from_set_to_matrix(procs: HashSet<ProcessId>) -> Matrix<ProcessId> {
         let n: u64 = procs.len() as u64;
-        println!("Size of set: {}", n);
+        //println!("Size of set: {}", n);
 
         // Be careful, |usize| < |u64|, there can be loss of information when converting from u64 into usize
         // Only using u64 as ProcessId to mantain compatibility with everything that was written before
         // Matrix library uses usize everywhere
 
         let d: usize = (n as f64).sqrt() as usize;
-        println!("Dimension: {}", d);
+        //println!("Dimension: {}", d);
 
         // Equal view of the matrix
         // Note that afterwards sorting by distance will be useless

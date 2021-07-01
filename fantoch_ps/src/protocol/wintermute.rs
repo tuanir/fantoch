@@ -219,21 +219,46 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
         // compute its deps
         let deps = self.key_deps.add_cmd(dot, &cmd, None);
 
+
+        // generates a quorum to handle this command
+        // NOTE: I need to create a mapping from Cmd -> quorum_cmd
+
+        let quorum_picked: HashSet<ProcessId> = self.byz_quorum_system.as_ref().unwrap_or_else(|| {
+                panic!(
+                    "process {} should have a BQS registered before",
+                    self.id()
+                );
+            })
+            .get_quorum();
+        
+
         // create `MCollect` and target
         let mcollect = Message::MCollect {
             dot,
             cmd,
             deps,
-            quorum: self.bp.fast_quorum(),
+            quorum: quorum_picked.clone(),
         };
-        let target = self.bp.all();
 
+        let target = quorum_picked.clone();
+
+        trace!(
+            "p{}: HSubmit({:?}, {:?}, {:?})| time={}",
+            self.id(),
+            dot,
+            cmd,
+            remote_deps,
+            time.micros()
+        );
+
+        println!("p: {} HSubmit(target: {:?})", self.id(), quorum_picked.clone());
         // save new action
         self.to_processes.push(Action::ToSend {
             target,
             msg: mcollect,
         });
     }
+
     fn handle_mcollect(
         &mut self,
         from: ProcessId,
@@ -252,7 +277,8 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
             from,
             time.micros()
         );
-
+        println!("p:{} HMcollect",self.id());
+        /*
         // get cmd info
         let info = self.cmds.get(dot);
 
@@ -311,6 +337,7 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
                 msg: mcollectack,
             });
         }
+        */
     }
 
     fn handle_event_garbage_collection(&mut self, _time: &dyn SysTime) {
@@ -635,7 +662,7 @@ mod tests {
         // discover processes in all wintermute
         // just reusing code, not useful for now to sort by distance
         // since when building the BQS this is not leveraged for now
-        // added function to BaseProcess, simple discover
+        // added function to BaseProcess, simple_discover
         // it doesnt fill fast_quorum or write_quorum
 
         let sorted = util::sort_processes_by_distance(
@@ -767,14 +794,14 @@ mod tests {
             .expect("there should be a first operation");
         let target = client_1.shard_process(&target_shard);
 
-        // check that `target` is epaxos 1
+        // check that `target` is winter 1
         assert_eq!(target, 1);
 
-        /*
+       
         // register client
         simulation.register_client(client_1);
-
-        // register command in executor and submit it in epaxos 1
+        
+        // register command in executor and submit it in winter 1
         let (process, _, pending, time) = simulation.get_process(target);
         pending.wait_for(&cmd);
         process.submit(None, cmd, time);
@@ -782,19 +809,23 @@ mod tests {
         // there's a single action
         assert_eq!(actions.len(), 1);
         let mcollect = actions.pop().unwrap();
-        */
+        
 
-        /*
+        
         // check that the mcollect is being sent to *all* processes
-        let check_target = |target: &HashSet<ProcessId>| target.len() == n;
+        let check_target = |target: &HashSet<ProcessId>| target.len() == 16;
         assert!(
             matches!(mcollect.clone(), Action::ToSend{target, ..} if check_target(&target))
         );
+        
 
+         
         // handle mcollects
         let mut mcollectacks =
-            simulation.forward_to_processes((process_id_1, mcollect));
-
+            simulation.forward_to_processes((1, mcollect));
+        
+        //println!("mcollectacks: {}", mcollectacks.len());
+        /*
         // check that there's a single mcollectack
         assert_eq!(mcollectacks.len(), 1);
 
