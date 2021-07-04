@@ -45,9 +45,8 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Protocol for Wintermute<KD, QS> {
         shard_id: ShardId,
         config: Config,
     ) -> (Self, Vec<(Self::PeriodicEvent, Duration)>) {
-        // Won't use this
-        let (fast_quorum_size, write_quorum_size) = (0, 0);
-        //config.epaxos_quorum_sizes();
+        let (fast_quorum_size, write_quorum_size) =
+            config.wintermute_quorum_sizes();
 
         // create protocol data-structures
         let bp = BaseProcess::new(
@@ -195,13 +194,6 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Protocol for Wintermute<KD, QS> {
 }
 
 impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
-    // Depends on Byz Quorum System
-    /*
-    pub fn allowed_faults(n: usize) -> usize {
-
-        0
-    }
-    */
 
     /// Uses baseprocess attrib to create new BQS instance
     fn build_BQS(&mut self) -> bool {
@@ -211,18 +203,22 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
         self.byz_quorum_system.is_some()
     }
 
-    //fix this.
     fn handle_submit(&mut self, dot: Option<Dot>, cmd: Command) {
+
         // compute the command identifier
+        // TODO: find solution to byzantine behavior here.
         let dot = dot.unwrap_or_else(|| self.bp.next_dot());
 
         // compute its deps
-        let deps = self.key_deps.add_cmd(dot, &cmd, None);
+        // add_cmd takes past, won't use it.
+        //let deps = self.key_deps.add_cmd(dot, &cmd, None);
+
+        // CHECK. What to do if coord \notin Q?
+        // Command is not being saved here.
 
 
         // generates a quorum to handle this command
         // NOTE: I need to create a mapping from Cmd -> quorum_cmd
-
         let quorum_picked: HashSet<ProcessId> = self.byz_quorum_system.as_ref().unwrap_or_else(|| {
                 panic!(
                     "process {} should have a BQS registered before",
@@ -232,22 +228,25 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
             .get_quorum();
         
 
+        // no past
+        let empty_remote_deps: HashSet<Dependency> = HashSet::new();
+
         // create `MCollect` and target
         let mcollect = Message::MCollect {
             dot,
             cmd,
-            deps,
+            deps: empty_remote_deps.clone(),
             quorum: quorum_picked.clone(),
         };
 
+        // to quorum only or to all?
         let target = quorum_picked.clone();
 
         trace!(
-            "p{}: HSubmit({:?}, {:?}, {:?})| time={}",
+            "p{}: HSubmit({:?}, {:?})| time={}",
             self.id(),
             dot,
             cmd,
-            remote_deps,
             time.micros()
         );
 
@@ -277,16 +276,23 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
             from,
             time.micros()
         );
-        println!("p:{} HMcollect",self.id());
-        /*
+
+        println!("p:{} HMcollect", self.id());
+
+        // compute its deps
+        let deps = self.key_deps.add_cmd(dot, &cmd, None);
+        
         // get cmd info
         let info = self.cmds.get(dot);
 
+        // CHECK: how can we reach this? out of order messages
         // discard message if no longer in START
         if info.status != Status::START {
             return;
         }
-
+        
+        
+        /*
         // check if part of fast quorum
         if !quorum.contains(&self.bp.process_id) {
             // if not:
@@ -306,36 +312,104 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
             */
             return;
         }
+        */
+        /*
+        // remote deps always empty, no past. 
+        let deps = self.key_deps.add_cmd(dot, &cmd, Some(remote_deps));
+        */
 
-        // check if it's a message from self
-        let message_from_self = from == self.bp.process_id;
-
-        let deps = if message_from_self {
-            // if it is, do not recompute deps
-            remote_deps
-        } else {
-            // otherwise, compute deps with the remote deps as past
-            self.key_deps.add_cmd(dot, &cmd, Some(remote_deps))
-        };
-
+        /*
         // update command info
         info.status = Status::COLLECT;
+        // be careful, haven't initilized FQ size and WQ size properly yet.
         info.quorum = quorum;
         info.cmd = Some(cmd);
+        */
+
+        /*
         // create and set consensus value
         let value = ConsensusValue::with(deps.clone());
         assert!(info.synod.set_if_not_accepted(|| value));
+        */
 
-        // create `MCollectAck` and target (only if not message from self)
-        if !message_from_self {
-            let mcollectack = Message::MCollectAck { dot, deps };
-            let target = singleton![from];
+        /*
+        // create `MCollectAck` and target
+        let mcollectack = Message::MCollectAck { dot, deps };
+        let target = singleton![from];
 
-            // save new action
-            self.to_processes.push(Action::ToSend {
-                target,
-                msg: mcollectack,
-            });
+        // save new action
+        self.to_processes.push(Action::ToSend {
+            target,
+            msg: mcollectack,
+        });
+       */ 
+        
+    }
+
+    fn handle_mcollectack(
+        &mut self,
+        from: ProcessId,
+        dot: Dot,
+        deps: HashSet<Dependency>,
+        _time: &dyn SysTime,
+    ) {
+        trace!(
+            "p{}: MCollectAck({:?}, {:?}) from {} | time={}",
+            self.id(),
+            dot,
+            deps,
+            from,
+            _time.micros()
+        );
+
+        // it can't be a ack from self (see the `MCollect` handler)
+        //assert_ne!(from, self.bp.process_id);
+
+        //if he was part of quorum, this will work (because it did handle_mcollect), otherwise not
+        // get cmd info
+        let info = self.cmds.get(dot);
+
+        // do nothing if we're no longer COLLECT
+        if info.status != Status::COLLECT {
+            return;
+        }
+        /*
+        // update quorum deps
+        info.quorum_deps.add(from, deps);
+
+        // check if we have all necessary replies
+        if info.quorum_deps.all() {
+            // compute the union while checking whether all deps reported are
+            // equal
+            let (final_deps, all_equal) = info.quorum_deps.check_union();
+
+            // create consensus value
+            let value = ConsensusValue::with(final_deps);
+
+            // fast path condition: all reported deps were equal
+            if all_equal {
+                self.bp.fast_path();
+                // fast path: create `MCommit`
+                let mcommit = Message::MCommit { dot, value };
+                let target = self.bp.all();
+
+                // save new action
+                self.to_processes.push(Action::ToSend {
+                    target,
+                    msg: mcommit,
+                });
+            } else {
+                self.bp.slow_path();
+                // slow path: create `MConsensus`
+                let ballot = info.synod.skip_prepare();
+                let mconsensus = Message::MConsensus { dot, ballot, value };
+                let target = self.bp.write_quorum();
+                // save new action
+                self.to_processes.push(Action::ToSend {
+                    target,
+                    msg: mconsensus,
+                });
+            }
         }
         */
     }
@@ -419,12 +493,16 @@ impl Info for WintermuteInfo {
         // in the fast path condition, and this clock is not necessary for
         // correctness; for this to work, `MCollectAck`'s from self should be
         // ignored, or not even created.
+
+        // In Wintermute we handle self MCollectAck, because coord might not be in Q
+        // picked by the BQS.
+
         Self {
             status: Status::START,
             quorum: HashSet::new(),
             synod: Synod::new(process_id, n, f, proposal_gen, initial_value),
             cmd: None,
-            quorum_deps: QuorumDeps::new(fast_quorum_size - 1),
+            quorum_deps: QuorumDeps::new(fast_quorum_size),
         }
     }
 }
@@ -812,17 +890,19 @@ mod tests {
         
 
         
-        // check that the mcollect is being sent to *all* processes
+        // check that the mcollect is being sent to |Q| processes
         let check_target = |target: &HashSet<ProcessId>| target.len() == 16;
         assert!(
             matches!(mcollect.clone(), Action::ToSend{target, ..} if check_target(&target))
         );
         
-
+        println!("PASSED");
          
         // handle mcollects
         let mut mcollectacks =
             simulation.forward_to_processes((1, mcollect));
+        
+        println!("HERE");
         
         //println!("mcollectacks: {}", mcollectacks.len());
         /*

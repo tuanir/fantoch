@@ -20,7 +20,8 @@ pub trait ByzQuorumSystem: Debug + Clone {
     /// that abides to a certain intersection rule.
     fn get_quorum(&self) -> HashSet<ProcessId>;
 
-    fn get_quorum_size(&self) -> usize;
+    fn get_consensus_quorum(&self) -> HashSet<ProcessId>;
+
 }
 
 //cargo test --lib byzantine -- --show-output

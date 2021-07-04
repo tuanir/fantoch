@@ -280,6 +280,28 @@ impl Config {
         (fast_quorum_size, write_quorum_size)
     }
 
+    // write_quorum_size = 3f+1, the committee
+    // fast_quorum_size depends on `factor` (which depends on `f`)
+
+    pub fn wintermute_quorum_sizes(&self) -> (usize, usize) {
+        let n = self.n;
+        let f = self.f;
+
+        let inner = (((3 * f) as f64) / 2_f64) + 1_f64;
+        let factor = (inner.sqrt()).ceil() as usize;
+        let sqrtn = ((n as f64).sqrt()) as usize;
+
+        let validate_config = ((3 * f) as f64) + 2_f64;
+
+        if validate_config > (n as f64).sqrt() {
+            panic!("3f+2 IS NOT LEQ sqrt(n)");
+        }
+        let fast_quorum_size = (2 * factor) * sqrtn - (factor * factor);
+        let write_quorum_size = (3 * f) + 1;
+
+        (fast_quorum_size, write_quorum_size)
+    }
+
     /// Computes `EPaxos` fast and write quorum sizes.
     pub fn epaxos_quorum_sizes(&self) -> (usize, usize) {
         let n = self.n;
@@ -327,16 +349,6 @@ impl Config {
         let write_quorum_size = f + 1;
         (fast_quorum_size, write_quorum_size, stability_threshold)
     }
-
-    //TODO: make this generic for different types of bqs
-    /*
-    pub fn wintermute_quorum_sizes(&self) -> usize {
-        let n = self.n as f64;
-        let f = self.f as f64;
-        
-    }
-    */
-
 }
 
 #[cfg(test)]
@@ -517,6 +529,18 @@ mod tests {
             })
             .collect();
         assert_eq!(fs, expected);
+    }
+
+    #[test]
+    fn wintermute_parameters() {
+        let config = Config::new(25, 1);
+        assert_eq!(config.wintermute_quorum_sizes(), (16, 4));
+
+        let config2 = Config::new(64, 2);
+        assert_eq!(config2.wintermute_quorum_sizes(), (28, 7));
+
+        let config3 = Config::new(289, 5);
+        assert_eq!(config3.wintermute_quorum_sizes(), (93, 16));
     }
 
     #[test]

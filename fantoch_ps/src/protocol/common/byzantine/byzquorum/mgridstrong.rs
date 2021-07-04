@@ -40,6 +40,7 @@ impl ByzQuorumSystem for MGridStrong {
         //The following section can be improved (ofc), but will remain ugly for now.
 
         // Generate random rows without duplicates
+        // TODO: use VRF here.
         // rows_used will be useful later as they must be sent as proof in a later iteration of the code
         let mut rows_picked: HashSet<usize> = HashSet::new();
         loop {
@@ -78,20 +79,19 @@ impl ByzQuorumSystem for MGridStrong {
         q
     }
 
-    fn get_quorum_size(&self) -> usize {
-        0
+    // TODO: Implement this somewhere else.
+    // Function to get a random committee (write quorum)
+    fn get_consensus_quorum(&self) -> HashSet<ProcessId> {
+        let ans = HashSet::new();
+        ans.clone()
     }
 
 }
 
 impl MGridStrong {
 
-    // I'm assuming that 'n' provided in the config is correct
-    // TODO: properly sanitize when `n` and `f` are incompatible.
     pub fn from_set_to_matrix(procs: HashSet<ProcessId>) -> Matrix<ProcessId> {
         let n: u64 = procs.len() as u64;
-        //println!("Size of set: {}", n);
-
         // Be careful, |usize| < |u64|, there can be loss of information when converting from u64 into usize
         // Only using u64 as ProcessId to mantain compatibility with everything that was written before
         // Matrix library uses usize everywhere
