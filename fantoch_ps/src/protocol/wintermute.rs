@@ -138,7 +138,7 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Protocol for Wintermute<KD, QS> {
                 deps,
             } => self.handle_mcollect(from, dot, cmd, quorum, deps, time),
             Message::MCollectAck { dot, deps } => {
-                //self.handle_mcollectack(from, dot, deps, time)
+                self.handle_mcollectack(from, dot, deps, time)
             }
             Message::MCommit { dot, value } => {
                 //self.handle_mcommit(from, dot, value, time)
@@ -194,7 +194,6 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Protocol for Wintermute<KD, QS> {
 }
 
 impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
-
     /// Uses baseprocess attrib to create new BQS instance
     fn build_BQS(&mut self) -> bool {
         let created = QS::new(self.bp.all(), self.bp.config.f());
@@ -204,9 +203,11 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
     }
 
     fn handle_submit(&mut self, dot: Option<Dot>, cmd: Command) {
-
         // compute the command identifier
         // TODO: find solution to byzantine behavior here.
+
+        // invariant: dot must be unique
+        // just show proof of last dot. Let quorum assign dot.
         let dot = dot.unwrap_or_else(|| self.bp.next_dot());
 
         // compute its deps
@@ -216,31 +217,32 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
         // CHECK. What to do if coord \notin Q?
         // Command is not being saved here.
 
-
         // generates a quorum to handle this command
         // NOTE: I need to create a mapping from Cmd -> quorum_cmd
-        let quorum_picked: HashSet<ProcessId> = self.byz_quorum_system.as_ref().unwrap_or_else(|| {
+        let quorum_picked: HashSet<ProcessId> = self
+            .byz_quorum_system
+            .as_ref()
+            .unwrap_or_else(|| {
                 panic!(
                     "process {} should have a BQS registered before",
                     self.id()
                 );
             })
             .get_quorum();
-        
 
         // no past
-        let empty_remote_deps: HashSet<Dependency> = HashSet::new();
+        let empty_past: HashSet<Dependency> = HashSet::new();
 
         // create `MCollect` and target
         let mcollect = Message::MCollect {
             dot,
             cmd,
-            deps: empty_remote_deps.clone(),
+            deps: empty_past.clone(),
             quorum: quorum_picked.clone(),
         };
 
-        // to quorum only or to all?
-        let target = quorum_picked.clone();
+        // to all actually
+        let target = self.bp.all();
 
         trace!(
             "p{}: HSubmit({:?}, {:?})| time={}",
@@ -250,7 +252,12 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
             time.micros()
         );
 
-        println!("p: {} HSubmit(target: {:?})", self.id(), quorum_picked.clone());
+        println!(
+            "p: {} HSubmit(quorumPicked: {:?})",
+            self.id(),
+            quorum_picked.clone()
+        );
+
         // save new action
         self.to_processes.push(Action::ToSend {
             target,
@@ -279,60 +286,59 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
 
         println!("p:{} HMcollect", self.id());
 
-        // compute its deps
-        let deps = self.key_deps.add_cmd(dot, &cmd, None);
-        
         // get cmd info
         let info = self.cmds.get(dot);
 
-        // CHECK: how can we reach this? out of order messages
         // discard message if no longer in START
         if info.status != Status::START {
             return;
         }
-        
-        
-        /*
+
+        // check if it's a message from self (in case the coordinator that submitted is not in Q)
+        let message_from_self = from == self.bp.process_id;
+
         // check if part of fast quorum
         if !quorum.contains(&self.bp.process_id) {
-            // if not:
+            // if not
+            // AND we are NOT coordinator:
             // - simply save the payload and set status to `PAYLOAD`
             // - if we received the `MCommit` before the `MCollect`, handle the
             //   `MCommit` now
+            if !message_from_self {
+                info.status = Status::PAYLOAD;
+                info.cmd = Some(cmd);
 
-            info.status = Status::PAYLOAD;
-            info.cmd = Some(cmd);
-
-            // check if there's a buffered commit notification; if yes, handle
-            // the commit again (since now we have the payload)
-            /*
-            if let Some((from, value)) = self.buffered_commits.remove(&dot) {
-                self.handle_mcommit(from, dot, value, time);
+                // check if there's a buffered commit notification; if yes, handle
+                // the commit again (since now we have the payload)
+                /*
+                if let Some((from, value)) = self.buffered_commits.remove(&dot) {
+                    self.handle_mcommit(from, dot, value, time);
+                }
+                */
+            } else {
+                // update command info being coordinator
+                info.status = Status::COLLECT;
+                info.quorum = quorum;
+                info.cmd = Some(cmd);
             }
-            */
             return;
         }
-        */
-        /*
-        // remote deps always empty, no past. 
-        let deps = self.key_deps.add_cmd(dot, &cmd, Some(remote_deps));
-        */
 
-        /*
+        // compute its deps
+        let deps = self.key_deps.add_cmd(dot, &cmd, None);
+
         // update command info
         info.status = Status::COLLECT;
-        // be careful, haven't initilized FQ size and WQ size properly yet.
         info.quorum = quorum;
         info.cmd = Some(cmd);
-        */
 
         /*
+        TODO:
         // create and set consensus value
         let value = ConsensusValue::with(deps.clone());
         assert!(info.synod.set_if_not_accepted(|| value));
         */
 
-        /*
         // create `MCollectAck` and target
         let mcollectack = Message::MCollectAck { dot, deps };
         let target = singleton![from];
@@ -342,8 +348,6 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
             target,
             msg: mcollectack,
         });
-       */ 
-        
     }
 
     fn handle_mcollectack(
@@ -362,10 +366,15 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
             _time.micros()
         );
 
-        // it can't be a ack from self (see the `MCollect` handler)
-        //assert_ne!(from, self.bp.process_id);
+        println!(
+            "p{}: MCollectAck({:?}, {:?}) from {} | time={}",
+            self.id(),
+            dot,
+            deps,
+            from,
+            _time.micros()
+        );
 
-        //if he was part of quorum, this will work (because it did handle_mcollect), otherwise not
         // get cmd info
         let info = self.cmds.get(dot);
 
@@ -373,45 +382,33 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
         if info.status != Status::COLLECT {
             return;
         }
-        /*
+
         // update quorum deps
         info.quorum_deps.add(from, deps);
 
+        println!("after add: {:?}", info.quorum_deps);
         // check if we have all necessary replies
         if info.quorum_deps.all() {
-            // compute the union while checking whether all deps reported are
-            // equal
-            let (final_deps, all_equal) = info.quorum_deps.check_union();
+            // return only the deps seen `f+1` times
+            // this won't work with compaction.
+            let final_deps = info.quorum_deps.threshold_union(self.bp.config.f()+1);
 
+            /*
             // create consensus value
             let value = ConsensusValue::with(final_deps);
 
-            // fast path condition: all reported deps were equal
-            if all_equal {
-                self.bp.fast_path();
-                // fast path: create `MCommit`
-                let mcommit = Message::MCommit { dot, value };
-                let target = self.bp.all();
-
-                // save new action
-                self.to_processes.push(Action::ToSend {
-                    target,
-                    msg: mcommit,
-                });
-            } else {
-                self.bp.slow_path();
-                // slow path: create `MConsensus`
-                let ballot = info.synod.skip_prepare();
-                let mconsensus = Message::MConsensus { dot, ballot, value };
-                let target = self.bp.write_quorum();
-                // save new action
-                self.to_processes.push(Action::ToSend {
-                    target,
-                    msg: mconsensus,
-                });
-            }
+            self.bp.slow_path();
+            // slow path: create `MConsensus`
+            let ballot = info.synod.skip_prepare();
+            let mconsensus = Message::MConsensus { dot, ballot, value };
+            let target = self.bp.write_quorum();
+            // save new action
+            self.to_processes.push(Action::ToSend {
+                target,
+                msg: mconsensus,
+            });
+            */
         }
-        */
     }
 
     fn handle_event_garbage_collection(&mut self, _time: &dyn SysTime) {
@@ -686,24 +683,15 @@ mod tests {
         */
 
         // wintermute
-        let (mut winter_1, _) = 
-            Wintermute::<KD, QS>::new(1, shard_id, config);
-        let (mut winter_2, _) = 
-            Wintermute::<KD, QS>::new(2, shard_id, config);
-        let (mut winter_3, _) = 
-            Wintermute::<KD, QS>::new(3, shard_id, config);
-        let (mut winter_4, _) = 
-            Wintermute::<KD, QS>::new(4, shard_id, config);
-        let (mut winter_5, _) = 
-            Wintermute::<KD, QS>::new(5, shard_id, config);
-        let (mut winter_6, _) = 
-            Wintermute::<KD, QS>::new(6, shard_id, config);
-        let (mut winter_7, _) = 
-            Wintermute::<KD, QS>::new(7, shard_id, config);
-        let (mut winter_8, _) = 
-            Wintermute::<KD, QS>::new(8, shard_id, config);
-        let (mut winter_9, _) = 
-            Wintermute::<KD, QS>::new(9, shard_id, config);
+        let (mut winter_1, _) = Wintermute::<KD, QS>::new(1, shard_id, config);
+        let (mut winter_2, _) = Wintermute::<KD, QS>::new(2, shard_id, config);
+        let (mut winter_3, _) = Wintermute::<KD, QS>::new(3, shard_id, config);
+        let (mut winter_4, _) = Wintermute::<KD, QS>::new(4, shard_id, config);
+        let (mut winter_5, _) = Wintermute::<KD, QS>::new(5, shard_id, config);
+        let (mut winter_6, _) = Wintermute::<KD, QS>::new(6, shard_id, config);
+        let (mut winter_7, _) = Wintermute::<KD, QS>::new(7, shard_id, config);
+        let (mut winter_8, _) = Wintermute::<KD, QS>::new(8, shard_id, config);
+        let (mut winter_9, _) = Wintermute::<KD, QS>::new(9, shard_id, config);
         let (mut winter_10, _) =
             Wintermute::<KD, QS>::new(10, shard_id, config);
         let (mut winter_11, _) =
@@ -835,9 +823,8 @@ mod tests {
         simulation.register_process(winter_24, executor_24);
         simulation.register_process(winter_25, executor_25);
 
-        println!("Got here");
+        println!("Values instantiated");
 
-        
         // client workload
         let shard_count = 1;
         let key_gen = KeyGen::ConflictPool {
@@ -854,7 +841,6 @@ mod tests {
             commands_per_client,
             payload_size,
         );
-        
         // create client 1 that is connected to wintermute 1
         let client_id = 1;
         let client_region = europe_west2.clone();
@@ -875,46 +861,41 @@ mod tests {
         // check that `target` is winter 1
         assert_eq!(target, 1);
 
-       
         // register client
         simulation.register_client(client_1);
-        
+
         // register command in executor and submit it in winter 1
         let (process, _, pending, time) = simulation.get_process(target);
+
         pending.wait_for(&cmd);
         process.submit(None, cmd, time);
+
         let mut actions: Vec<_> = process.to_processes_iter().collect();
+
         // there's a single action
         assert_eq!(actions.len(), 1);
         let mcollect = actions.pop().unwrap();
-        
 
-        
-        // check that the mcollect is being sent to |Q| processes
-        let check_target = |target: &HashSet<ProcessId>| target.len() == 16;
+        // check that the mcollect is being sent to *all* processes
+        let check_target = |target: &HashSet<ProcessId>| target.len() == n;
         assert!(
             matches!(mcollect.clone(), Action::ToSend{target, ..} if check_target(&target))
         );
-        
-        println!("PASSED");
-         
-        // handle mcollects
-        let mut mcollectacks =
-            simulation.forward_to_processes((1, mcollect));
-        
-        println!("HERE");
-        
-        //println!("mcollectacks: {}", mcollectacks.len());
-        /*
-        // check that there's a single mcollectack
-        assert_eq!(mcollectacks.len(), 1);
 
-        // handle the *only* mcollectack
-        // - there's a single mcollectack since the initial coordinator does not
-        //   reply to itself
-        let mut mcommits = simulation.forward_to_processes(
-            mcollectacks.pop().expect("there should be an mcollect ack"),
-        );
+        // handle mcollects
+        let mut mcollectacks = simulation.forward_to_processes((1, mcollect));
+
+        println!("mcollectacks: {}", mcollectacks.len());
+
+        // check that there's that |mcollectack| = |Q|
+        assert_eq!(mcollectacks.len(), 16);
+
+        let mut mcommits = for ack in 1..=16 {
+            simulation.forward_to_processes(
+                mcollectacks.pop().expect("there should be an mcollect ack"),
+            );
+        };
+        /*
         // there's a commit now
         assert_eq!(mcommits.len(), 1);
 

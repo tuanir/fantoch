@@ -47,12 +47,12 @@ mod tests {
 
     // global test config
     const SHARD_COUNT: usize = 1;
-    const COMMANDS_PER_CLIENT: usize = 100;
+    const COMMANDS_PER_CLIENT: usize = 1;
     const KEY_GEN: KeyGen = KeyGen::ConflictPool {
-        conflict_rate: 50,
+        conflict_rate: 100,
         pool_size: 1,
     };
-    const CLIENTS_PER_PROCESS: usize = 10;
+    const CLIENTS_PER_PROCESS: usize = 1;
 
     macro_rules! config {
         ($n:expr, $f:expr) => {{
@@ -652,7 +652,7 @@ mod tests {
         let planet = Planet::new();
 
         // clients workload
-        let keys_per_command = 2;
+        let keys_per_command = 1;
         let payload_size = 1;
         let workload = Workload::new(
             shard_count,

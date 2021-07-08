@@ -63,6 +63,23 @@ impl QuorumDeps {
         (deps, equal_to_union)
     }
 
+    /// Returns deps recorded more than `threshold` times.
+    //TODO: Remember to test this.
+    pub fn threshold_union(
+        &self,
+        threshold: usize,
+    ) -> HashSet<Dependency> {
+        assert!(self.all());
+
+        let deps: HashSet<Dependency> = self
+            .threshold_deps
+            .iter()
+            .filter(|&(_,count)| *count >= threshold)
+            .map(|(dep, _)| dep.clone())
+            .collect();
+        deps
+    }
+
     /// Checks if all deps the union.
     pub fn check_union(&self) -> (HashSet<Dependency>, bool) {
         assert!(self.all());

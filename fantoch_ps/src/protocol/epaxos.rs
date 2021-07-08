@@ -197,6 +197,7 @@ impl<KD: KeyDeps> EPaxos<KD> {
 
     /// Handles a submit operation by a client.
     fn handle_submit(&mut self, dot: Option<Dot>, cmd: Command) {
+
         // compute the command identifier
         let dot = dot.unwrap_or_else(|| self.bp.next_dot());
 
@@ -325,6 +326,8 @@ impl<KD: KeyDeps> EPaxos<KD> {
 
         // update quorum deps
         info.quorum_deps.add(from, deps);
+
+        println!("after add: {:?}", info.quorum_deps);
 
         // check if we have all necessary replies
         if info.quorum_deps.all() {
@@ -866,7 +869,13 @@ mod tests {
             .cmd_send(&time)
             .expect("there should be a first operation");
         let target = client_1.shard_process(&target_shard);
-
+        
+        /*
+        let (_, cmd2) = client_1
+            .cmd_send(&time)
+            .expect("there should be a second operation");
+        */
+        
         // check that `target` is epaxos 1
         assert_eq!(target, process_id_1);
 
@@ -876,11 +885,19 @@ mod tests {
         // register command in executor and submit it in epaxos 1
         let (process, _, pending, time) = simulation.get_process(target);
         pending.wait_for(&cmd);
+        
+        //pending.wait_for(&cmd2);
         process.submit(None, cmd, time);
+        //process.submit(None, cmd2, time);
+
         let mut actions: Vec<_> = process.to_processes_iter().collect();
+
         // there's a single action
         assert_eq!(actions.len(), 1);
+        //assert_eq!(actions.len(), 2);
+
         let mcollect = actions.pop().unwrap();
+        //let mcollect2 = actions.pop().unwrap();
 
         // check that the mcollect is being sent to *all* processes
         let check_target = |target: &HashSet<ProcessId>| target.len() == n;

@@ -164,8 +164,10 @@ fn tempo(aws: bool) {
 
     let ns = vec![5];
     // let clients_per_region = vec![64, 128, 256, 512];
+    //let clients_per_region = vec![64, 128, 256, 512];
     // let pool_sizes = vec![100, 50, 10, 1];
     // let conflicts = vec![0, 2, 10, 30, 50, 100];
+    
     let clients_per_region = vec![
         32,
         512,
@@ -176,6 +178,7 @@ fn tempo(aws: bool) {
         1024 * 16,
         1024 * 20,
     ];
+    
     let pool_sizes = vec![1];
     let conflicts = vec![2];
 
@@ -186,10 +189,10 @@ fn tempo(aws: bool) {
             vec![
                 // (protocol, (n, f, tiny quorums, clock bump interval, skip
                 // fast ack))
-                ("Atlas", config!(n, 1, false, None, false, false)),
-                // ("EPaxos", config!(n, 1, false, None, false, false)),
+                //("Atlas", config!(n, 1, false, None, false, false)),
+                ("EPaxos", config!(n, 1, false, None, false, false)),
                 // ("FPaxos", config!(n, 1, false, None, false, false)),
-                ("Tempo", config!(n, 1, false, None, false, false)),
+                //("Tempo", config!(n, 1, false, None, false, false)),
             ]
         } else if n == 5 {
             vec![
@@ -231,6 +234,7 @@ fn tempo(aws: bool) {
                             pool_size,
                         };
                         let keys_per_command = 1;
+                        //let commands_per_client = 1;
                         let commands_per_client = 200;
                         let payload_size = 0;
                         let workload = Workload::new(
