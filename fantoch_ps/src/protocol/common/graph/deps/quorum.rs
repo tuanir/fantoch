@@ -64,7 +64,6 @@ impl QuorumDeps {
     }
 
     /// Returns deps recorded more than `threshold` times.
-    //TODO: Remember to test this.
     pub fn threshold_union(
         &self,
         threshold: usize,
@@ -158,6 +157,7 @@ mod tests {
         quorum_deps.add(2, deps_1_and_2.clone());
         quorum_deps.add(3, deps_1_and_2.clone());
 
+
         // check threshold union
         assert_eq!(
             quorum_deps.check_threshold_union(1),
@@ -190,6 +190,11 @@ mod tests {
         quorum_deps.add(1, deps_1_2_and_3.clone());
         quorum_deps.add(2, deps_1_and_2.clone());
         quorum_deps.add(3, deps_1_and_2.clone());
+
+        assert_eq!(
+            quorum_deps.threshold_union(2),
+            deps_1_and_2.clone()
+        );
 
         // check threshold union
         assert_eq!(
