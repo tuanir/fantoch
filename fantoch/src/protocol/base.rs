@@ -210,6 +210,11 @@ impl BaseProcess {
             .expect("the slow quorum should be known")
     }
 
+    // Returns the write quorum size.
+    pub fn write_quorum_size(&self) -> usize {
+        self.write_quorum_size
+    }
+
     // Returns the closest process for this shard.
     pub fn closest_process(&self, shard_id: &ShardId) -> ProcessId {
         *self

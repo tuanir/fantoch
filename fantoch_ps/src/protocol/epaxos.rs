@@ -327,8 +327,6 @@ impl<KD: KeyDeps> EPaxos<KD> {
         // update quorum deps
         info.quorum_deps.add(from, deps);
 
-        println!("after add: {:?}", info.quorum_deps);
-
         // check if we have all necessary replies
         if info.quorum_deps.all() {
             // compute the union while checking whether all deps reported are

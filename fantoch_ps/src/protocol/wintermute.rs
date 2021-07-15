@@ -18,6 +18,9 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use threshold::VClock;
 
+use rand::distributions::{Distribution, Uniform};
+use std::iter::FromIterator;
+
 pub type WintermuteSequential = Wintermute<SequentialKeyDeps, MGridStrong>;
 //pub type WintermuteLocked = Wintermute<LockedKeyDeps>;
 
@@ -143,10 +146,10 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Protocol for Wintermute<KD, QS> {
             Message::MCommit { dot, value } => {
                 //self.handle_mcommit(from, dot, value, time)
             }
-            Message::MConsensus { dot, ballot, value } => {
-                //self.handle_mconsensus(from, dot, ballot, value, time)
+            Message::FConsensus { dot, final_deps } => {
+                self.handle_fconsensus(from, dot, final_deps, time)
             }
-            Message::MConsensusAck { dot, ballot } => {
+            Message::FConsensusAck { dot, final_deps } => {
                 //self.handle_mconsensusack(from, dot, ballot, time)
             }
             Message::MCommitDot { dot } => {
@@ -195,11 +198,34 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Protocol for Wintermute<KD, QS> {
 
 impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
     /// Uses baseprocess attrib to create new BQS instance
+    // Use VRF here
     fn build_BQS(&mut self) -> bool {
         let created = QS::new(self.bp.all(), self.bp.config.f());
         self.byz_quorum_system = Some(created);
 
         self.byz_quorum_system.is_some()
+    }
+
+    /// Returns randomly 3f+1 processes (size of write_quorum) that will run 
+    /// a one shot byzantine consensus
+    // TODO: Use VRF here
+    fn random_committee(&self) -> HashSet<ProcessId> {
+        let mut ans = HashSet::new();
+        let mut rng = rand::thread_rng();
+        let all_but_me_vec =
+            Vec::from_iter(self.bp.all_but_me().clone().into_iter());
+
+        let die = Uniform::from(0..=all_but_me_vec.len() - 1);
+        loop {
+            let pos_picked: usize = die.sample(&mut rng);
+            ans.insert(*all_but_me_vec.get(pos_picked).expect(
+                "There should be a process in this position of the vector",
+            ));
+            if ans.len() == self.bp.write_quorum_size() {
+                break;
+            }
+        }
+        ans
     }
 
     fn handle_submit(&mut self, dot: Option<Dot>, cmd: Command) {
@@ -218,7 +244,6 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
         // Command is not being saved here.
 
         // generates a quorum to handle this command
-        // NOTE: I need to create a mapping from Cmd -> quorum_cmd
         let quorum_picked: HashSet<ProcessId> = self
             .byz_quorum_system
             .as_ref()
@@ -308,6 +333,7 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
                 info.status = Status::PAYLOAD;
                 info.cmd = Some(cmd);
 
+                // TODO:
                 // check if there's a buffered commit notification; if yes, handle
                 // the commit again (since now we have the payload)
                 /*
@@ -386,29 +412,51 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
         // update quorum deps
         info.quorum_deps.add(from, deps);
 
-        println!("after add: {:?}", info.quorum_deps);
         // check if we have all necessary replies
         if info.quorum_deps.all() {
-            // return only the deps seen `f+1` times
-            // this won't work with compaction.
-            let final_deps = info.quorum_deps.threshold_union(self.bp.config.f()+1);
-
-            /*
-            // create consensus value
-            let value = ConsensusValue::with(final_deps);
-
+            // TODO: use real threshold union after changing deps representation
+            let (final_deps, _) = info.quorum_deps.check_union();
             self.bp.slow_path();
-            // slow path: create `MConsensus`
-            let ballot = info.synod.skip_prepare();
-            let mconsensus = Message::MConsensus { dot, ballot, value };
-            let target = self.bp.write_quorum();
+            // slow path: create `Fake Consensus`
+            let fconsensus = Message::FConsensus { dot, final_deps };
+            // takes randomly 3f+1 processes from all_but_me
+            let target = self.random_committee();
+
+            println!("p: {} Random Committee: {:?}", self.id(), target);
             // save new action
             self.to_processes.push(Action::ToSend {
                 target,
-                msg: mconsensus,
+                msg: fconsensus,
             });
-            */
         }
+    }
+
+    fn handle_fconsensus(
+        &mut self,
+        from: ProcessId,
+        dot: Dot,
+        final_deps: HashSet<Dependency>,
+        _time: &dyn SysTime,
+    ) {
+        trace!(
+            "p{}: FConsensus({:?}, {:?}) | time={}",
+            self.id(),
+            dot,
+            final_deps,
+            _time.micros()
+        );
+
+        // get cmd info
+        let info = self.cmds.get(dot);
+
+        // create target
+        let target = singleton![from];
+
+        let fconsensusack = Message::FConsensusAck { dot, final_deps };
+
+        // save new action
+        self.to_processes.push(Action::ToSend { target, msg: fconsensusack });
+
     }
 
     fn handle_event_garbage_collection(&mut self, _time: &dyn SysTime) {
@@ -521,14 +569,13 @@ pub enum Message {
         dot: Dot,
         value: ConsensusValue,
     },
-    MConsensus {
+    FConsensus {
         dot: Dot,
-        ballot: u64,
-        value: ConsensusValue,
+        final_deps: HashSet<Dependency>,
     },
-    MConsensusAck {
+    FConsensusAck {
         dot: Dot,
-        ballot: u64,
+        final_deps: HashSet<Dependency>,
     },
     MCommitDot {
         dot: Dot,
@@ -551,8 +598,8 @@ impl MessageIndex for Message {
             Self::MCollect { dot, .. } => worker_dot_index_shift(&dot),
             Self::MCollectAck { dot, .. } => worker_dot_index_shift(&dot),
             Self::MCommit { dot, .. } => worker_dot_index_shift(&dot),
-            Self::MConsensus { dot, .. } => worker_dot_index_shift(&dot),
-            Self::MConsensusAck { dot, .. } => worker_dot_index_shift(&dot),
+            Self::FConsensus {dot, .. } => worker_dot_index_shift(&dot),
+            Self::FConsensusAck {dot, .. } => worker_dot_index_shift(&dot),
             // GC messages
             Self::MCommitDot { .. } => worker_index_no_shift(GC_WORKER_INDEX),
             Self::MGarbageCollection { .. } => {
@@ -683,15 +730,24 @@ mod tests {
         */
 
         // wintermute
-        let (mut winter_1, _) = Wintermute::<KD, QS>::new(1, shard_id, config);
-        let (mut winter_2, _) = Wintermute::<KD, QS>::new(2, shard_id, config);
-        let (mut winter_3, _) = Wintermute::<KD, QS>::new(3, shard_id, config);
-        let (mut winter_4, _) = Wintermute::<KD, QS>::new(4, shard_id, config);
-        let (mut winter_5, _) = Wintermute::<KD, QS>::new(5, shard_id, config);
-        let (mut winter_6, _) = Wintermute::<KD, QS>::new(6, shard_id, config);
-        let (mut winter_7, _) = Wintermute::<KD, QS>::new(7, shard_id, config);
-        let (mut winter_8, _) = Wintermute::<KD, QS>::new(8, shard_id, config);
-        let (mut winter_9, _) = Wintermute::<KD, QS>::new(9, shard_id, config);
+        let (mut winter_1, _) = 
+            Wintermute::<KD, QS>::new(1, shard_id, config);
+        let (mut winter_2, _) = 
+            Wintermute::<KD, QS>::new(2, shard_id, config);
+        let (mut winter_3, _) = 
+            Wintermute::<KD, QS>::new(3, shard_id, config);
+        let (mut winter_4, _) = 
+            Wintermute::<KD, QS>::new(4, shard_id, config);
+        let (mut winter_5, _) = 
+            Wintermute::<KD, QS>::new(5, shard_id, config);
+        let (mut winter_6, _) = 
+            Wintermute::<KD, QS>::new(6, shard_id, config);
+        let (mut winter_7, _) = 
+            Wintermute::<KD, QS>::new(7, shard_id, config);
+        let (mut winter_8, _) = 
+            Wintermute::<KD, QS>::new(8, shard_id, config);
+        let (mut winter_9, _) = 
+            Wintermute::<KD, QS>::new(9, shard_id, config);
         let (mut winter_10, _) =
             Wintermute::<KD, QS>::new(10, shard_id, config);
         let (mut winter_11, _) =

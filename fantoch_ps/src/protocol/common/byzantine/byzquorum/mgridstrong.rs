@@ -37,7 +37,7 @@ impl ByzQuorumSystem for MGridStrong {
         let cols_die = Uniform::from(0..self.grid.cols());
 
 
-        //The following section can be improved (ofc), but will remain ugly for now.
+        // The following section can be improved (ofc), but will remain ugly for now.
 
         // Generate random rows without duplicates
         // TODO: use VRF here.
@@ -77,13 +77,6 @@ impl ByzQuorumSystem for MGridStrong {
         }
         println!("Size of Q: {}", q.len());
         q
-    }
-
-    // TODO: Implement this somewhere else.
-    // Function to get a random committee (write quorum)
-    fn get_consensus_quorum(&self) -> HashSet<ProcessId> {
-        let ans = HashSet::new();
-        ans.clone()
     }
 
 }

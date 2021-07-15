@@ -20,13 +20,12 @@ pub trait ByzQuorumSystem: Debug + Clone {
     /// that abides to a certain intersection rule.
     fn get_quorum(&self) -> HashSet<ProcessId>;
 
-    fn get_consensus_quorum(&self) -> HashSet<ProcessId>;
-
 }
 
 //cargo test --lib byzantine -- --show-output
 //remember to test everything in byzantine
 //cargo test protocol::common::byzantine::byzquorum::tests::build_mgrid_strong -- --exact --show-output
+//cargo test --lib -p fantoch_ps sim_epaxos_5_2_test -- --show-output 
 
 //TODO: do some proper testing, this is absolute garbage.
 

@@ -47,7 +47,7 @@ mod tests {
 
     // global test config
     const SHARD_COUNT: usize = 1;
-    const COMMANDS_PER_CLIENT: usize = 1;
+    const COMMANDS_PER_CLIENT: usize = 2;
     const KEY_GEN: KeyGen = KeyGen::ConflictPool {
         conflict_rate: 100,
         pool_size: 1,
