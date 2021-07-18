@@ -1,7 +1,8 @@
 use crate::executor::{GraphExecutionInfo, GraphExecutor};
 use crate::protocol::common::byzantine::{ByzQuorumSystem, MGridStrong};
 use crate::protocol::common::graph::{
-    Dependency, KeyDeps, LockedKeyDeps, QuorumDeps, SequentialKeyDeps,
+    CommitteeDeps, Dependency, KeyDeps, LockedKeyDeps, QuorumDeps,
+    SequentialKeyDeps,
 };
 use crate::protocol::common::synod::{Synod, SynodMessage};
 use fantoch::command::Command;
@@ -143,14 +144,14 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Protocol for Wintermute<KD, QS> {
             Message::MCollectAck { dot, deps } => {
                 self.handle_mcollectack(from, dot, deps, time)
             }
-            Message::MCommit { dot, value } => {
-                //self.handle_mcommit(from, dot, value, time)
+            Message::MCommit { dot, final_deps } => {
+                self.handle_mcommit(from, dot, final_deps, time)
             }
             Message::FConsensus { dot, final_deps } => {
                 self.handle_fconsensus(from, dot, final_deps, time)
             }
             Message::FConsensusAck { dot, final_deps } => {
-                //self.handle_mconsensusack(from, dot, ballot, time)
+                self.handle_fconsensusack(from, dot, final_deps, time)
             }
             Message::MCommitDot { dot } => {
                 //self.handle_mcommit_dot(from, dot, time)
@@ -206,7 +207,7 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
         self.byz_quorum_system.is_some()
     }
 
-    /// Returns randomly 3f+1 processes (size of write_quorum) that will run 
+    /// Returns randomly 3f+1 processes (size of write_quorum) that will run
     /// a one shot byzantine consensus
     // TODO: Use VRF here
     fn random_committee(&self) -> HashSet<ProcessId> {
@@ -419,10 +420,14 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
             self.bp.slow_path();
             // slow path: create `Fake Consensus`
             let fconsensus = Message::FConsensus { dot, final_deps };
-            // takes randomly 3f+1 processes from all_but_me
+            // take randomly 3f+1 processes from all_but_me
             let target = self.random_committee();
 
-            println!("p: {} Random Committee: {:?}", self.id(), target);
+            println!(
+                "p: {} , FConsensus to Random Committee: {:?}",
+                self.id(),
+                target
+            );
             // save new action
             self.to_processes.push(Action::ToSend {
                 target,
@@ -446,6 +451,13 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
             _time.micros()
         );
 
+        println!(
+            "p{}: FConsensus({:?}, {:?}) | time={}",
+            self.id(),
+            dot,
+            final_deps,
+            _time.micros()
+        );
         // get cmd info
         let info = self.cmds.get(dot);
 
@@ -455,8 +467,103 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
         let fconsensusack = Message::FConsensusAck { dot, final_deps };
 
         // save new action
-        self.to_processes.push(Action::ToSend { target, msg: fconsensusack });
+        self.to_processes.push(Action::ToSend {
+            target,
+            msg: fconsensusack,
+        });
+    }
 
+    fn handle_fconsensusack(
+        &mut self,
+        from: ProcessId,
+        dot: Dot,
+        final_deps: HashSet<Dependency>,
+        _time: &dyn SysTime,
+    ) {
+        trace!(
+            "p{}: FConsensusAck({:?}) | time={}",
+            self.id(),
+            dot,
+            _time.micros()
+        );
+
+        // get cmd info
+        let info = self.cmds.get(dot);
+
+        // update committee deps count
+        info.committee_deps.add(from, final_deps.clone());
+
+        // check if we got 2f+1 equal replies, if so, broadcast commit
+        if info.committee_deps.accepted_deps.1 == (2 * self.bp.config.f() + 1) {
+            println!("COUNTER in FCONSENSUSACK {:?}", info.committee_deps.accepted_deps);
+            let target = self.bp.all();
+            let mcommit = Message::MCommit { dot, final_deps };
+
+            // save new action
+            self.to_processes.push(Action::ToSend {
+                target,
+                msg: mcommit,
+            });
+        }
+    }
+
+   fn handle_mcommit(
+        &mut self,
+        from: ProcessId,
+        dot: Dot,
+        final_deps: HashSet<Dependency>,
+        _time: &dyn SysTime,
+    ) {
+        trace!(
+            "p{}: MCommit({:?}, {:?}) | time={}",
+            self.id(),
+            dot,
+            final_deps,
+            _time.micros()
+        );
+
+        // get cmd info
+        let info = self.cmds.get(dot);
+
+        if info.status == Status::START {
+            // save this notification just in case we've received the `MCollect`
+            // and `MCommit` in opposite orders (due to multiplexing)
+            //self.buffered_commits.insert(dot, (from, value));
+            return;
+        }
+
+        if info.status == Status::COMMIT {
+            // do nothing if we're already COMMIT
+            return;
+        }
+
+        // check it's not a noop
+        /*
+        assert_eq!(
+            value.is_noop, false,
+            "handling noop's is not implemented yet"
+        );
+        */
+
+
+        // create execution info
+        let cmd = info.cmd.clone().expect("there should be a command payload");
+        let execution_info =
+            GraphExecutionInfo::add(dot, cmd, final_deps.clone());
+        self.to_executors.push(execution_info);
+
+        // update command info:
+        info.status = Status::COMMIT;
+
+        if self.gc_running() {
+            // notify self with the committed dot
+            self.to_processes.push(Action::ToForward {
+                msg: Message::MCommitDot { dot },
+            });
+        } else {
+            // if we're not running gc, remove the dot info now
+            self.cmds.gc_single(dot);
+        }
     }
 
     fn handle_event_garbage_collection(&mut self, _time: &dyn SysTime) {
@@ -518,6 +625,7 @@ struct WintermuteInfo {
     // `quorum_clocks` is used by the coordinator to compute the threshold
     // clock when deciding whether to take the fast path
     quorum_deps: QuorumDeps,
+    committee_deps: CommitteeDeps,
 }
 
 impl Info for WintermuteInfo {
@@ -527,7 +635,7 @@ impl Info for WintermuteInfo {
         n: usize,
         f: usize,
         fast_quorum_size: usize,
-        _write_quorum_size: usize,
+        write_quorum_size: usize,
     ) -> Self {
         // create bottom consensus value
         let initial_value = ConsensusValue::bottom();
@@ -548,6 +656,7 @@ impl Info for WintermuteInfo {
             synod: Synod::new(process_id, n, f, proposal_gen, initial_value),
             cmd: None,
             quorum_deps: QuorumDeps::new(fast_quorum_size),
+            committee_deps: CommitteeDeps::new(write_quorum_size),
         }
     }
 }
@@ -567,7 +676,7 @@ pub enum Message {
     },
     MCommit {
         dot: Dot,
-        value: ConsensusValue,
+        final_deps: HashSet<Dependency>,
     },
     FConsensus {
         dot: Dot,
@@ -598,8 +707,8 @@ impl MessageIndex for Message {
             Self::MCollect { dot, .. } => worker_dot_index_shift(&dot),
             Self::MCollectAck { dot, .. } => worker_dot_index_shift(&dot),
             Self::MCommit { dot, .. } => worker_dot_index_shift(&dot),
-            Self::FConsensus {dot, .. } => worker_dot_index_shift(&dot),
-            Self::FConsensusAck {dot, .. } => worker_dot_index_shift(&dot),
+            Self::FConsensus { dot, .. } => worker_dot_index_shift(&dot),
+            Self::FConsensusAck { dot, .. } => worker_dot_index_shift(&dot),
             // GC messages
             Self::MCommitDot { .. } => worker_index_no_shift(GC_WORKER_INDEX),
             Self::MGarbageCollection { .. } => {
@@ -730,24 +839,15 @@ mod tests {
         */
 
         // wintermute
-        let (mut winter_1, _) = 
-            Wintermute::<KD, QS>::new(1, shard_id, config);
-        let (mut winter_2, _) = 
-            Wintermute::<KD, QS>::new(2, shard_id, config);
-        let (mut winter_3, _) = 
-            Wintermute::<KD, QS>::new(3, shard_id, config);
-        let (mut winter_4, _) = 
-            Wintermute::<KD, QS>::new(4, shard_id, config);
-        let (mut winter_5, _) = 
-            Wintermute::<KD, QS>::new(5, shard_id, config);
-        let (mut winter_6, _) = 
-            Wintermute::<KD, QS>::new(6, shard_id, config);
-        let (mut winter_7, _) = 
-            Wintermute::<KD, QS>::new(7, shard_id, config);
-        let (mut winter_8, _) = 
-            Wintermute::<KD, QS>::new(8, shard_id, config);
-        let (mut winter_9, _) = 
-            Wintermute::<KD, QS>::new(9, shard_id, config);
+        let (mut winter_1, _) = Wintermute::<KD, QS>::new(1, shard_id, config);
+        let (mut winter_2, _) = Wintermute::<KD, QS>::new(2, shard_id, config);
+        let (mut winter_3, _) = Wintermute::<KD, QS>::new(3, shard_id, config);
+        let (mut winter_4, _) = Wintermute::<KD, QS>::new(4, shard_id, config);
+        let (mut winter_5, _) = Wintermute::<KD, QS>::new(5, shard_id, config);
+        let (mut winter_6, _) = Wintermute::<KD, QS>::new(6, shard_id, config);
+        let (mut winter_7, _) = Wintermute::<KD, QS>::new(7, shard_id, config);
+        let (mut winter_8, _) = Wintermute::<KD, QS>::new(8, shard_id, config);
+        let (mut winter_9, _) = Wintermute::<KD, QS>::new(9, shard_id, config);
         let (mut winter_10, _) =
             Wintermute::<KD, QS>::new(10, shard_id, config);
         let (mut winter_11, _) =
@@ -943,25 +1043,51 @@ mod tests {
 
         println!("mcollectacks: {}", mcollectacks.len());
 
-        // check that there's that |mcollectack| = |Q|
+        // check that |mcollectack| = |Q|
         assert_eq!(mcollectacks.len(), 16);
 
-        let mut mcommits = for ack in 1..=16 {
-            simulation.forward_to_processes(
+        let mut mfconsensus: Vec<_> = Vec::new();
+        for ack in 1..=16 {
+            mfconsensus.push(simulation.forward_to_processes(
                 mcollectacks.pop().expect("there should be an mcollect ack"),
-            );
-        };
-        /*
-        // there's a commit now
-        assert_eq!(mcommits.len(), 1);
+            ));
+        }
+
+        let mut mfconsensus_to_send =
+            mfconsensus.pop().expect("there should be a FConsensus Msg");
+        let fconsensus_msg_to_send = mfconsensus_to_send
+            .pop()
+            .expect("there should be an action");
+
+        println!("Msg to committee: {:?}", fconsensus_msg_to_send);
+
+        let mut resp_to_fconsensus =
+            simulation.forward_to_processes(fconsensus_msg_to_send);
+
+        println!("Responses from CONS: {:?}", resp_to_fconsensus);
+
+        let mut mcommits: Vec<_> = Vec::new();
+        for r in 1..=4 {
+            mcommits.push(simulation.forward_to_processes(resp_to_fconsensus.pop().expect("there should be fconsensus acks")));
+        }
+
+        // just eliminating empty response
+        mcommits.pop().expect("commit is sent at 2f+1");
+
+        println!("Mcommits: {:?}", mcommits);
 
         // check that the mcommit is sent to everyone
-        let mcommit = mcommits.pop().expect("there should be an mcommit");
+        let mut mcommitVec = mcommits.pop().expect("there should be an mcommit vec with 1 mcommit msg");
+        let mcommit = mcommitVec.pop().expect("there should be an mcommit");
+        println!("MCOMMIT MSG {:?}", mcommit);
+        
         let check_target = |target: &HashSet<ProcessId>| target.len() == n;
         assert!(
             matches!(mcommit.clone(), (_, Action::ToSend {target, ..}) if check_target(&target))
         );
+        
 
+        /*
         // all processes handle it
         let to_sends = simulation.forward_to_processes(mcommit);
 
