@@ -36,7 +36,7 @@ pub struct Wintermute<KD: KeyDeps, QS: ByzQuorumSystem> {
     to_executors: Vec<GraphExecutionInfo>,
     // commit notifications that arrived before the initial `MCollect` message
     // (this may be possible even without network failures due to multiplexing)
-    buffered_commits: HashMap<Dot, (ProcessId, ConsensusValue)>,
+    buffered_commits: HashMap<Dot, (ProcessId, HashSet<Dependency>)>,
 }
 
 impl<KD: KeyDeps, QS: ByzQuorumSystem> Protocol for Wintermute<KD, QS> {
@@ -154,13 +154,13 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Protocol for Wintermute<KD, QS> {
                 self.handle_fconsensusack(from, dot, final_deps, time)
             }
             Message::MCommitDot { dot } => {
-                //self.handle_mcommit_dot(from, dot, time)
+                self.handle_mcommit_dot(from, dot, time)
             }
             Message::MGarbageCollection { committed } => {
-                //self.handle_mgc(from, committed, time)
+                self.handle_mgc(from, committed, time)
             }
             Message::MStable { stable } => {
-                //self.handle_mstable(from, stable, time)
+                self.handle_mstable(from, stable, time)
             }
         }
     }
@@ -334,14 +334,12 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
                 info.status = Status::PAYLOAD;
                 info.cmd = Some(cmd);
 
-                // TODO:
                 // check if there's a buffered commit notification; if yes, handle
                 // the commit again (since now we have the payload)
-                /*
-                if let Some((from, value)) = self.buffered_commits.remove(&dot) {
+                if let Some((from, value)) = self.buffered_commits.remove(&dot)
+                {
                     self.handle_mcommit(from, dot, value, time);
                 }
-                */
             } else {
                 // update command info being coordinator
                 info.status = Status::COLLECT;
@@ -495,7 +493,10 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
 
         // check if we got 2f+1 equal replies, if so, broadcast commit
         if info.committee_deps.accepted_deps.1 == (2 * self.bp.config.f() + 1) {
-            println!("COUNTER in FCONSENSUSACK {:?}", info.committee_deps.accepted_deps);
+            println!(
+                "COUNTER in FCONSENSUSACK {:?}",
+                info.committee_deps.accepted_deps
+            );
             let target = self.bp.all();
             let mcommit = Message::MCommit { dot, final_deps };
 
@@ -507,7 +508,7 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
         }
     }
 
-   fn handle_mcommit(
+    fn handle_mcommit(
         &mut self,
         from: ProcessId,
         dot: Dot,
@@ -528,7 +529,7 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
         if info.status == Status::START {
             // save this notification just in case we've received the `MCollect`
             // and `MCommit` in opposite orders (due to multiplexing)
-            //self.buffered_commits.insert(dot, (from, value));
+            self.buffered_commits.insert(dot, (from, final_deps));
             return;
         }
 
@@ -544,7 +545,6 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
             "handling noop's is not implemented yet"
         );
         */
-
 
         // create execution info
         let cmd = info.cmd.clone().expect("there should be a command payload");
@@ -564,6 +564,64 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
             // if we're not running gc, remove the dot info now
             self.cmds.gc_single(dot);
         }
+    }
+
+    fn handle_mcommit_dot(
+        &mut self,
+        from: ProcessId,
+        dot: Dot,
+        _time: &dyn SysTime,
+    ) {
+        trace!(
+            "p{}: MCommitDot({:?}) | time={}",
+            self.id(),
+            dot,
+            _time.micros()
+        );
+        assert_eq!(from, self.bp.process_id);
+        self.gc_track.add_to_clock(&dot);
+    }
+
+    fn handle_mgc(
+        &mut self,
+        from: ProcessId,
+        committed: VClock<ProcessId>,
+        _time: &dyn SysTime,
+    ) {
+        trace!(
+            "p{}: MGarbageCollection({:?}) from {} | time={}",
+            self.id(),
+            committed,
+            from,
+            _time.micros()
+        );
+        self.gc_track.update_clock_of(from, committed);
+        // compute newly stable dots
+        let stable = self.gc_track.stable();
+        // create `ToForward` to self
+        if !stable.is_empty() {
+            self.to_processes.push(Action::ToForward {
+                msg: Message::MStable { stable },
+            });
+        }
+    }
+
+    fn handle_mstable(
+        &mut self,
+        from: ProcessId,
+        stable: Vec<(ProcessId, u64, u64)>,
+        _time: &dyn SysTime,
+    ) {
+        trace!(
+            "p{}: MStable({:?}) from {} | time={}",
+            self.id(),
+            stable,
+            from,
+            _time.micros()
+        );
+        assert_eq!(from, self.bp.process_id);
+        let stable_count = self.cmds.gc(stable);
+        self.bp.stable(stable_count);
     }
 
     fn handle_event_garbage_collection(&mut self, _time: &dyn SysTime) {
@@ -1068,7 +1126,13 @@ mod tests {
 
         let mut mcommits: Vec<_> = Vec::new();
         for r in 1..=4 {
-            mcommits.push(simulation.forward_to_processes(resp_to_fconsensus.pop().expect("there should be fconsensus acks")));
+            mcommits.push(
+                simulation.forward_to_processes(
+                    resp_to_fconsensus
+                        .pop()
+                        .expect("there should be fconsensus acks"),
+                ),
+            );
         }
 
         // just eliminating empty response
@@ -1077,17 +1141,16 @@ mod tests {
         println!("Mcommits: {:?}", mcommits);
 
         // check that the mcommit is sent to everyone
-        let mut mcommitVec = mcommits.pop().expect("there should be an mcommit vec with 1 mcommit msg");
+        let mut mcommitVec = mcommits
+            .pop()
+            .expect("there should be an mcommit vec with 1 mcommit msg");
         let mcommit = mcommitVec.pop().expect("there should be an mcommit");
         println!("MCOMMIT MSG {:?}", mcommit);
-        
         let check_target = |target: &HashSet<ProcessId>| target.len() == n;
         assert!(
             matches!(mcommit.clone(), (_, Action::ToSend {target, ..}) if check_target(&target))
         );
-        
 
-        /*
         // all processes handle it
         let to_sends = simulation.forward_to_processes(mcommit);
 
@@ -1097,10 +1160,12 @@ mod tests {
         assert!(to_sends.into_iter().all(|(_, action)| {
             matches!(action, Action::ToForward { msg } if check_msg(&msg))
         }));
+        println!("HERE");
+        
 
         // process 1 should have something to the executor
         let (process, executor, pending, time) =
-            simulation.get_process(process_id_1);
+            simulation.get_process(1);
         let to_executor: Vec<_> = process.to_executors_iter().collect();
         assert_eq!(to_executor.len(), 1);
 
@@ -1133,10 +1198,10 @@ mod tests {
         assert_eq!(actions.len(), 1);
         let mcollect = actions.pop().unwrap();
 
-        let check_msg = |msg: &Message| matches!(msg, Message::MCollect {dot, ..} if dot == &Dot::new(process_id_1, 2));
+        let check_msg = |msg: &Message| matches!(msg, Message::MCollect {dot, ..} if dot == &Dot::new(1, 2));
         assert!(
             matches!(mcollect, Action::ToSend {msg, ..} if check_msg(&msg))
         );
-        */
+        
     }
 }
