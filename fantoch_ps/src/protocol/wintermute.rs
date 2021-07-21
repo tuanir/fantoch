@@ -23,7 +23,7 @@ use rand::distributions::{Distribution, Uniform};
 use std::iter::FromIterator;
 
 pub type WintermuteSequential = Wintermute<SequentialKeyDeps, MGridStrong>;
-//pub type WintermuteLocked = Wintermute<LockedKeyDeps>;
+//pub type WintermuteLocked = Wintermute<LockedKeyDep, MGridStrongs>;
 
 #[derive(Debug, Clone)]
 pub struct Wintermute<KD: KeyDeps, QS: ByzQuorumSystem> {
@@ -118,6 +118,7 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Protocol for Wintermute<KD, QS> {
         processes: Vec<(ProcessId, ShardId)>,
     ) -> (bool, HashMap<ShardId, ProcessId>) {
         let connect_ok = self.bp.simple_discover(processes);
+        self.build_BQS();
         (connect_ok, self.bp.closest_shard_process().clone())
     }
 
@@ -278,11 +279,13 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
             time.micros()
         );
 
+        /*
         println!(
             "p: {} HSubmit(quorumPicked: {:?})",
             self.id(),
             quorum_picked.clone()
         );
+        */
 
         // save new action
         self.to_processes.push(Action::ToSend {
@@ -310,7 +313,7 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
             time.micros()
         );
 
-        println!("p:{} HMcollect", self.id());
+        //println!("p:{} HMcollect", self.id());
 
         // get cmd info
         let info = self.cmds.get(dot);
@@ -391,6 +394,7 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
             _time.micros()
         );
 
+        /*
         println!(
             "p{}: MCollectAck({:?}, {:?}) from {} | time={}",
             self.id(),
@@ -399,6 +403,7 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
             from,
             _time.micros()
         );
+        */
 
         // get cmd info
         let info = self.cmds.get(dot);
@@ -416,16 +421,20 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
             // TODO: use real threshold union after changing deps representation
             let (final_deps, _) = info.quorum_deps.check_union();
             self.bp.slow_path();
-            // slow path: create `Fake Consensus`
+            // set final_deps as accepted value for CONS
+            info.committee_deps.set_accepted_deps(final_deps.clone());
+            // slow path: create `Fake Byz Consensus`
             let fconsensus = Message::FConsensus { dot, final_deps };
             // take randomly 3f+1 processes from all_but_me
             let target = self.random_committee();
 
+            /*
             println!(
                 "p: {} , FConsensus to Random Committee: {:?}",
                 self.id(),
                 target
             );
+            */
             // save new action
             self.to_processes.push(Action::ToSend {
                 target,
@@ -449,6 +458,7 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
             _time.micros()
         );
 
+        /*
         println!(
             "p{}: FConsensus({:?}, {:?}) | time={}",
             self.id(),
@@ -456,6 +466,7 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
             final_deps,
             _time.micros()
         );
+        */
         // get cmd info
         let info = self.cmds.get(dot);
 
@@ -485,18 +496,25 @@ impl<KD: KeyDeps, QS: ByzQuorumSystem> Wintermute<KD, QS> {
             _time.micros()
         );
 
+        /*
+        println!(
+            "p{}: FConsensusAck({:?}){:?} | time={}",
+            self.id(),
+            dot,
+            final_deps,
+            _time.micros()
+        );
+        */
         // get cmd info
         let info = self.cmds.get(dot);
 
         // update committee deps count
-        info.committee_deps.add(from, final_deps.clone());
+        // NOTE: should I really be cloning for this?
+        info.committee_deps.add_count(from, final_deps.clone());
+
 
         // check if we got 2f+1 equal replies, if so, broadcast commit
-        if info.committee_deps.accepted_deps.1 == (2 * self.bp.config.f() + 1) {
-            println!(
-                "COUNTER in FCONSENSUSACK {:?}",
-                info.committee_deps.accepted_deps
-            );
+        if info.committee_deps.get_accepted_counter() == (2 * self.bp.config.f() + 1) {
             let target = self.bp.all();
             let mcommit = Message::MCommit { dot, final_deps };
 
@@ -677,7 +695,7 @@ fn proposal_gen(_values: HashMap<ProcessId, ConsensusValue>) -> ConsensusValue {
 struct WintermuteInfo {
     status: Status,
     quorum: HashSet<ProcessId>,
-    synod: Synod<ConsensusValue>,
+    //synod: Synod<ConsensusValue>,
     // `None` if not set yet
     cmd: Option<Command>,
     // `quorum_clocks` is used by the coordinator to compute the threshold
@@ -711,7 +729,7 @@ impl Info for WintermuteInfo {
         Self {
             status: Status::START,
             quorum: HashSet::new(),
-            synod: Synod::new(process_id, n, f, proposal_gen, initial_value),
+            //synod: Synod::new(process_id, n, f, proposal_gen, initial_value),
             cmd: None,
             quorum_deps: QuorumDeps::new(fast_quorum_size),
             committee_deps: CommitteeDeps::new(write_quorum_size),
@@ -983,6 +1001,7 @@ mod tests {
         winter_24.discover(sorted.clone());
         winter_25.discover(sorted.clone());
 
+        /*
         // Build BQS now
         winter_1.build_BQS();
         winter_2.build_BQS();
@@ -1009,6 +1028,7 @@ mod tests {
         winter_23.build_BQS();
         winter_24.build_BQS();
         winter_25.build_BQS();
+        */
 
         // register processes
         simulation.register_process(winter_1, executor_1);
@@ -1160,8 +1180,6 @@ mod tests {
         assert!(to_sends.into_iter().all(|(_, action)| {
             matches!(action, Action::ToForward { msg } if check_msg(&msg))
         }));
-        println!("HERE");
-        
 
         // process 1 should have something to the executor
         let (process, executor, pending, time) =

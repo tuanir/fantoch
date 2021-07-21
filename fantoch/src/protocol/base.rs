@@ -173,7 +173,6 @@ impl BaseProcess {
             self.closest_shard_process
         );
 
-        // connected if fast quorum and write quorum are set
         self.all.is_some() && self.all_but_me.is_some()
     }
 

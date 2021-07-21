@@ -28,7 +28,8 @@ impl ByzQuorumSystem for MGridStrong {
         let inner = (((3*self.faults) as f64)/2_f64) + 1_f64;
         let factor = (inner.sqrt()).ceil() as usize;
 
-        println!("Factor: {}", factor);
+
+        //println!("Factor: {}", factor);
 
         let mut rng = rand::thread_rng();
 
@@ -45,7 +46,7 @@ impl ByzQuorumSystem for MGridStrong {
         let mut rows_picked: HashSet<usize> = HashSet::new();
         loop {
             let throw_row: usize = rows_die.sample(&mut rng);
-            println!("R: {}", throw_row);
+            //println!("R: {}", throw_row);
             rows_picked.insert(throw_row);
             if rows_picked.len() == factor {
                 break;
@@ -57,7 +58,7 @@ impl ByzQuorumSystem for MGridStrong {
         let mut cols_picked: HashSet<usize> = HashSet::new();
         loop {
             let throw_col: usize = cols_die.sample(&mut rng);
-            println!("C: {}", throw_col);
+            //println!("C: {}", throw_col);
             cols_picked.insert(throw_col);
             if cols_picked.len() == factor {
                 break;
@@ -75,7 +76,7 @@ impl ByzQuorumSystem for MGridStrong {
                  q.insert(*e);
             }
         }
-        println!("Size of Q: {}", q.len());
+        //println!("Size of Q: {}", q.len());
         q
     }
 

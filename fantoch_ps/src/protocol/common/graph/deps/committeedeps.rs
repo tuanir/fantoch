@@ -11,7 +11,7 @@ pub struct CommitteeDeps {
     // set of processes that have participated in the committee
     participants: HashSet<ProcessId>,
     // accepted deps. Using HashMap< HashSet<Dependency>, usize> didn't work.
-    pub accepted_deps: (AcceptedSet, usize),
+    accepted_deps: (AcceptedSet, usize),
 }
 
 impl CommitteeDeps {
@@ -24,8 +24,22 @@ impl CommitteeDeps {
         }
     }
 
+    /// Set accepted value
+    pub fn set_accepted_deps(&mut self, final_deps: HashSet<Dependency>) {
+        self.accepted_deps.0 = final_deps;
+    }
+
+    /// Returns the accepted value
+    pub fn get_accepted_deps(&self) -> HashSet<Dependency> {
+        self.accepted_deps.0.clone()
+    }
+
+    pub fn get_accepted_counter(&self) -> usize {
+        self.accepted_deps.1
+    }
+
     /// Count how many times accepted deps were reported.
-    pub fn add(&mut self, process_id: ProcessId, deps: HashSet<Dependency>) -> bool {
+    pub fn add_count(&mut self, process_id: ProcessId, deps: HashSet<Dependency>) -> bool {
         assert!(self.participants.len() < self.write_quorum_size);
 
         // record new participant

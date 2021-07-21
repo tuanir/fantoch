@@ -26,9 +26,9 @@ mod partial;
 pub use atlas::{AtlasLocked, AtlasSequential};
 pub use caesar::CaesarLocked;
 pub use epaxos::{EPaxosLocked, EPaxosSequential};
-pub use wintermute::WintermuteSequential;
 pub use fpaxos::FPaxos;
 pub use tempo::{TempoAtomic, TempoLocked, TempoSequential};
+pub use wintermute::WintermuteSequential;
 
 #[cfg(test)]
 mod tests {
@@ -439,6 +439,17 @@ mod tests {
         );
         assert_eq!(slow_paths, 0);
     }
+    // ---- wintermute tests ---- //
+
+    #[test]
+    fn sim_wintermute_25_1_test() {
+        let slow_paths = sim_test_scalable::<WintermuteSequential>(
+            config!(25, 1),
+            COMMANDS_PER_CLIENT,
+            CLIENTS_PER_PROCESS,
+        );
+        assert!(slow_paths > 0);
+    }
 
     // ---- caesar tests ---- //
     #[test]
@@ -594,7 +605,7 @@ mod tests {
         update_config(&mut config, shard_count);
 
         // create workload
-        let keys_per_command = 2;
+        let keys_per_command = 1;
         let payload_size = 1;
         let workload = Workload::new(
             shard_count,
@@ -640,6 +651,76 @@ mod tests {
         check_metrics(config, commands_per_client, clients_per_process, metrics)
     }
 
+
+    fn sim_test_scalable<P: Protocol>(
+        mut config: Config,
+        commands_per_client: usize,
+        clients_per_process: usize,
+    ) -> usize {
+        let shard_count = 1;
+        update_config(&mut config, shard_count);
+
+        let planet_distance = 100;
+        let region_number = 25;
+        let (regions, planet) =
+            Planet::equidistant(planet_distance, region_number);
+        
+        // clients workload
+        let keys_per_command = 1;
+        let payload_size = 1;
+        let workload = Workload::new(
+            shard_count,
+            KEY_GEN,
+            keys_per_command,
+            commands_per_client,
+            payload_size,
+        );
+
+        // process and client regions
+        let process_regions = regions.clone();
+        let client_regions = regions.clone();
+
+        // create runner
+        let mut runner: Runner<P> = Runner::new(
+            planet,
+            config,
+            workload,
+            clients_per_process,
+            process_regions,
+            client_regions,
+        );
+
+        // reorder network messages
+        runner.reorder_messages();
+
+        // run simulation until the clients end + another 10 seconds (for GC)
+        let extra_sim_time = Some(Duration::from_secs(10));
+        let (metrics, executors_monitors, _) = runner.run(extra_sim_time);
+
+        // fetch slow paths and stable count from metrics
+        let metrics = metrics
+            .into_iter()
+            .map(|(process_id, (process_metrics, _executors_metrics))| {
+                let (fast_paths, slow_paths, stable_count) =
+                    extract_process_metrics(&process_metrics);
+                (process_id, (fast_paths, slow_paths, stable_count))
+            })
+            .collect();
+
+        let executors_monitors: Vec<_> = executors_monitors
+            .into_iter()
+            .map(|(process_id, order)| {
+                let order = order
+                    .expect("processes should be monitoring execution orders");
+                (process_id, order)
+            })
+            .collect();
+        check_monitors(executors_monitors);
+
+        check_metrics(config, commands_per_client, clients_per_process, metrics)
+    }
+    
+
     fn sim_test<P: Protocol>(
         mut config: Config,
         commands_per_client: usize,
@@ -664,6 +745,7 @@ mod tests {
 
         // process and client regions
         let mut regions = planet.regions();
+        println!("{:?}", regions);
         regions.truncate(config.n());
         let process_regions = regions.clone();
         let client_regions = regions.clone();
