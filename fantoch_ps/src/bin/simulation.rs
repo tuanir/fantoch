@@ -8,7 +8,7 @@ use fantoch::protocol::{Protocol, ProtocolMetrics, ProtocolMetricsKind};
 use fantoch::sim::Runner;
 use fantoch::HashMap;
 use fantoch_ps::protocol::{
-    AtlasSequential, CaesarLocked, EPaxosSequential, FPaxos, TempoSequential,
+    AtlasSequential, CaesarLocked, EPaxosSequential, FPaxos, TempoSequential, WintermuteSequential
 };
 use rayon::prelude::*;
 use std::time::Duration;
@@ -57,8 +57,9 @@ fn main() {
         .unwrap();
 
     let aws = true;
-    tempo(aws);
+    //tempo(aws);
     // fairest_leader();
+    winter("Wintermute");
 }
 
 fn aws_planet() -> (Planet, Vec<Region>) {
@@ -170,6 +171,7 @@ fn tempo(aws: bool) {
     
     let clients_per_region = vec![
         32,
+        /*
         512,
         1024,
         1024 * 2,
@@ -177,6 +179,7 @@ fn tempo(aws: bool) {
         1024 * 8,
         1024 * 16,
         1024 * 20,
+        */
     ];
     
     let pool_sizes = vec![1];
@@ -189,24 +192,24 @@ fn tempo(aws: bool) {
             vec![
                 // (protocol, (n, f, tiny quorums, clock bump interval, skip
                 // fast ack))
-                //("Atlas", config!(n, 1, false, None, false, false)),
-                ("EPaxos", config!(n, 1, false, None, false, false)),
+                ("Atlas", config!(n, 1, false, None, false, false)),
+                //("EPaxos", config!(n, 1, false, None, false, false)),
                 // ("FPaxos", config!(n, 1, false, None, false, false)),
-                //("Tempo", config!(n, 1, false, None, false, false)),
+                ("Tempo", config!(n, 1, false, None, false, false)),
             ]
         } else if n == 5 {
             vec![
                 // (protocol, (n, f, tiny quorums, clock bump interval, skip
                 // fast ack))
                 // ("Atlas", config!(n, 1, false, None, false, false)),
-                // ("Atlas", config!(n, 2, false, None, false, false)),
+                ("Atlas", config!(n, 2, false, None, false, false)),
                 // ("EPaxos", config!(n, 0, false, None, false, false)),
                 // ("FPaxos", config!(n, 1, false, None, false, false)),
                 // ("FPaxos", config!(n, 2, false, None, false, false)),
                 // ("Tempo", config!(n, 1, false, None, false, false)),
                 // ("Tempo", config!(n, 2, false, None, false, false)),
                 // ("Caesar", config!(n, 2, false, None, false, false)),
-                ("Caesar", config!(n, 2, false, None, false, true)),
+                //("Caesar", config!(n, 2, false, None, false, true)),
             ]
         } else {
             panic!("unsupported number of processes {}", n);
@@ -234,8 +237,8 @@ fn tempo(aws: bool) {
                             pool_size,
                         };
                         let keys_per_command = 1;
-                        //let commands_per_client = 1;
-                        let commands_per_client = 200;
+                        let commands_per_client = 1;
+                        //let commands_per_client = 200;
                         let payload_size = 0;
                         let workload = Workload::new(
                             shard_count,
@@ -438,6 +441,69 @@ fn equidistant<P: Protocol>(protocol_name: &str) {
         );
     }
 }
+
+#[allow(dead_code)]
+fn winter(protocol_name: &str) {
+    // intra-region distance
+    let distance = 100;
+
+    // number of processes and f
+    let configs = vec![(25, 1)];
+
+    // total clients
+    let total_clients = 25;
+
+    // clients workload
+    let shard_count = 1;
+    let key_gen = KeyGen::ConflictPool {
+        conflict_rate: 100,
+        pool_size: 1,
+    };
+    let keys_per_command = 1;
+    let commands_per_client = 25;
+    let payload_size = 0;
+    let workload = Workload::new(
+        shard_count,
+        key_gen,
+        keys_per_command,
+        commands_per_client,
+        payload_size,
+    );
+
+    for &(n, f) in &configs {
+        // create planet and regions
+        let (process_regions, planet) = Planet::equidistant(distance, n);
+
+        // client regions
+        let client_regions = process_regions.clone();
+
+        let clients_per_region = total_clients / n;
+        println!("running processes={} | clients={}", n, clients_per_region);
+        println!();
+
+        // config
+        //let config = Config::new(n, f);
+        // (protocol, (n, f, tiny quorums, clock bump interval, skip fast ack))
+        let config = config!(n, 1, false, None, false, false);
+
+        let (process_metrics, client_latencies) = run::<WintermuteSequential>(
+            config,
+            workload,
+            clients_per_region,
+            process_regions,
+            client_regions,
+            planet,
+        );
+        handle_run_result(
+            protocol_name,
+            config,
+            clients_per_region,
+            process_metrics,
+            client_latencies,
+        );
+    }
+}
+
 
 #[allow(dead_code)]
 fn increasing_regions<P: Protocol>(protocol_name: &str) {
